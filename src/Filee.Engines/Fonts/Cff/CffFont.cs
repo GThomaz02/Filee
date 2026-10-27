@@ -114,8 +114,7 @@ internal sealed class CffFont
             var fdAt = Offset(fdArrayOffset[0], data);
             var fontDicts = ReadIndex(data, ref fdAt).Select(ParseDict).ToArray();
             privates = [.. fontDicts.Select(fd => ReadPrivate(data, fd))];
-            // A font dictionary's FontMatrix applies first, then the Top DICT's.
-            matrices = [.. fontDicts.Select(fd => fd.TryGetValue(OpFontMatrix, out var fm) && fm.Length == 6 ? Multiply(fm, topMatrix) : topMatrix)];
+            matrices = [.. fontDicts.Select(fd => fd.TryGetValue(OpFontMatrix, out var fm) && fm.Length == 6 ? Combine(fm, topMatrix) : topMatrix)];
             if (top.TryGetValue(OpFdSelect, out var fdSelectOffset))
                 fdSelect = ReadFdSelect(data, Offset(fdSelectOffset[0], data), charStrings.Length, privates.Length);
         }
@@ -136,6 +135,27 @@ internal sealed class CffFont
             Strings = [.. strings.Select(s => Encoding.Latin1.GetString(s))],
             _fdSelect = fdSelect,
         };
+    }
+
+    /// <summary>
+    /// The FontMatrix of a CID font's font dictionary combined with the Top DICT's: the font dictionary's applies
+    /// first, and the product is scaled back by the smaller of the two units-per-em (1 / scale), as rasterizers do.
+    /// Both matrices often carry a units-per-em scale of their own (Top DICT 1/2048 and font dictionary 1/1000 in
+    /// fonts such as Pretendard), and a plain product would shrink the glyphs a thousandfold.
+    /// </summary>
+    internal static double[] Combine(double[] fontDict, double[] top)
+    {
+        var product = Multiply(fontDict, top);
+        var topUnits = UnitsPerEm(top);
+        var fontDictUnits = UnitsPerEm(fontDict);
+        var scale = topUnits > 1 && fontDictUnits > 1 ? Math.Min(topUnits, fontDictUnits) : 1;
+        return [.. product.Select(v => v * scale)];
+
+        static double UnitsPerEm(double[] matrix)
+        {
+            var size = Math.Abs(matrix[3]) > 0 ? Math.Abs(matrix[3]) : Math.Abs(matrix[0]);
+            return size > 0 ? Math.Round(1 / size) : 1;
+        }
     }
 
     /// <summary>Combines two FontMatrix transforms: <paramref name="first"/> is applied, then <paramref name="then"/>.</summary>
