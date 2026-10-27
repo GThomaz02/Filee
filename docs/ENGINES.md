@@ -500,12 +500,118 @@ extension, and the file must then have an NE header with FNT resources.
   supported. FON cannot be an output format.
 - Not supported: CFF2 (variable) outlines to TTF or EOT (to WOFF, WOFF2 and OTF they convert), writing font
   collections, and WOFF/WOFF2 extended metadata (dropped).
+- Subsetting (`Fonts/FontSubsetter.cs`) is not a conversion: it serves the Filee renderer's PDF output, see
+  [Filee renderer: PDF output](#filee-renderer-pdf-output).
 
 `tests/Filee.Engines.Tests/FontTests.cs` checks every conversion with small OFL fonts in
 `tests/Filee.Engines.Tests/Fonts` (see `OFL.txt` there): round trips keep every table byte for byte, a WOFF2 made
 by Google's encoder decodes to the source font, and converted CFF glyphs are compared with the originals in Skia.
 `tests/Filee.Engines.Tests/FonTests.cs` builds synthetic FON samples in code (`FonBuilder`) and compares every
 rendered glyph with its source bitmap.
+
+## Filee renderer: PDF output
+
+Groundwork for Filee's own document renderer (GitHub Project 4, "Filee: built-in engines", item *Layout engine: PDF
+backend and font subsetting spike*). No converter uses it yet; the layout engine's page model will be drawn through it.
+
+**Recommended decision (for the maintainer to confirm, "Decisions to make" #1): write PDFs with Skia's PDF backend
+(`SKDocument.CreatePdf`) and fonts subset by Filee (option A), not with a page writer of Filee's own on PDFsharp's
+low-level objects (option B).**
+
+### How option A writes a PDF
+
+- `Rendering/PageContent.cs` records a page: shaped glyph runs (`GlyphRun`: glyph IDs, positions, the source text
+  and HarfBuzz's cluster per glyph), other drawing as `SKCanvas` calls, URL links, links to named destinations and the
+  destinations. The same record draws onto any `SKCanvas`, so PNG output comes from the same code as the PDF.
+- `Rendering/PdfPageWriter.cs` collects the glyphs every page uses per font, subsets each font once for the
+  document, and draws the pages with the subset typefaces into `SKDocument.CreatePdf`. Each run is one text blob with
+  its UTF-8 text and clusters (`SKPositionedTextRunBuffer`): Skia writes a Type 0 / CIDFontType2 font with a subset
+  tag, a ToUnicode map built from the subset's cmap, and `/ActualText` for clusters that don't map one glyph to one
+  character (ligatures, Indic conjuncts and reordered vowel signs, Arabic contextual forms). Right-to-left runs are
+  drawn in logical order (glyphs reversed, each at its own position), so text comes out the way it was written in
+  readers that take it in content order.
+- Afterwards PDFsharp adds what Skia can't: the outline (bookmarks, with `/XYZ` destinations) and exact page sizes.
+  Skia rounds the media box to whole points (A4 becomes 595 × 842) and draws from its top edge; the media box is set
+  to end at that edge (`[0 0.11 595.28 842]`), so nothing moves. Pages of whole-point sizes without an outline skip
+  this pass.
+- `Fonts/FontSubsetter.cs` keeps the outlines of the used glyphs (and the components of composite glyphs) at their
+  original glyph IDs and empties the others; the glyph count is cut to the highest used ID + 1. Kept: glyf / loca,
+  head, hhea / hmtx, maxp, OS/2, a cmap of the used glyphs (`Fonts/CmapTable.cs`, formats 4 and 12), post 3.0, name
+  records 0–6 and the hinting tables (cvt, fpgm, prep, gasp: some CJK fonts build glyphs with instructions). Layout,
+  vertical, bitmap and variation tables are dropped. CFF fonts are converted to TrueType first, only the used glyphs
+  (`CffToTrueType`), so Skia always gets a TrueType font. Keeping glyph IDs costs about 1 KB per font after deflate
+  (loca and hmtx of the empty glyphs); hinting about 3 KB per font.
+- Fonts the subsetter can't take (CFF2, colour fonts) are handed to Skia whole: it draws them as Type 3 fonts (still
+  searchable), as it does today.
+
+### What was measured
+
+One A4 page built in code (`PdfPageWriterTests`): Korean (11 pt, 6 lines), English with ligatures and quotes, Arabic
+with harakat (right-to-left, right-aligned) and Hindi with conjuncts and reordered vowel signs, four headings with
+rules, a link, an outline and a filled box. Latin and Arabic in Segoe UI, Devanagari in Nirmala UI, Korean in the font
+of each row. Option B was a prototype on PDFsharp's low-level objects (Type 0 / CIDFontType2, Identity-H,
+CIDToGIDMap Identity, its own ToUnicode CMap and per-cluster `/ActualText`, the same subsetter); it drew only text, so
+its page had no rules or box. The prototype is not in the repository.
+
+| Korean font | A: PDF | A: fonts embedded | B: PDF | B: fonts embedded |
+|---|---|---|---|---|
+| Malgun Gothic (TrueType, 13.5 MB) | 72.7 KB | 28.1 + 19.3 + 12.4 KB | 73.4 KB | 27.8 + 19.0 + 12.2 KB |
+| Noto Sans KR VF (variable TrueType, 10.4 MB) | 57.5 KB | 12.3 + 19.3 + 12.4 KB | 57.9 KB | 12.1 + 19.0 + 12.2 KB |
+| Pretendard (CID-keyed CFF, 1.6 MB) | 57.2 KB | 12.4 + 19.3 + 12.4 KB | 57.7 KB | 12.2 + 19.0 + 12.2 KB |
+| S-Core Dream (CFF, 0.7 MB) | 56.0 KB | 11.0 + 19.3 + 12.4 KB | 56.2 KB | 10.9 + 19.0 + 12.2 KB |
+
+- **Without Filee's subsetter**, Skia embeds the whole font: one line of Malgun Gothic makes a 7.45 MB PDF, one line of
+  Segoe UI 550 KB, and the variable fonts and CFF fonts above come out as Type 3 fonts.
+- **Size**: both options under 200 KB with every font embedded as a subset (`ABCDEF+` tag, FontFile2), under 75 KB
+  in fact. The writers' own overhead differs by less than 1 KB.
+- **Text**: PdfPig reads back the exact source text from both (content order, `/ActualText` spans replacing their
+  glyphs): every cluster whole, Arabic in logical order, with every Korean font.
+- **Look in PDFium** (PDFtoImage, rendered at 300 dpi and averaged down to 100 dpi, compared with Skia's own picture
+  of the page; SSIM over the windows with ink): A 0.946–0.954 with 0.45–0.5 % of the pixels more than 64 grey levels
+  apart, B 0.960–0.971 with 0.07–0.2 %. B also matches PDFium's picture of the same glyphs drawn as paths (0.99),
+  A less (0.945). Crops at 300 dpi look the same: the difference is anti-aliasing, most likely because PDFium draws
+  Skia's text through a flipped text matrix (`1 0 0 -1`), not glyph shapes or positions (PdfPig finds all 966 glyphs
+  of both files within 0.001 pt of each other).
+- **Speed**: A 0.17–0.4 s for the page including subsetting (1.1 s for Pretendard, whose 1.6 MB CFF is parsed whole),
+  B 0.03–0.17 s.
+- **Not checked**: browsers (Chrome and Edge use PDFium, the engine checked; Firefox's pdf.js wasn't run), Adobe
+  Acrobat and macOS Preview; the full Noto Sans CJK OTF (not installed here: CID-keyed CFF is covered by
+  `FileeTest-CID.otf`, a subset of Noto Sans KR OTF, and by Pretendard locally); Linux and macOS. Set
+  `FILEE_RENDER_OUT` to a folder when running `PdfPageWriterTests` to keep the PDFs for a look in those viewers.
+
+### Why A
+
+- Text is a draw, not the hard part: both options write the same small, searchable PDFs, because the subsetter, the
+  cluster handling and the logical order do the work in both.
+- Everything else a page has, A gets from Skia: paths, strokes and dashes, gradients, clipping, transparency, pictures
+  (JPEG passed through, others deflated with soft masks), links and destinations. B would need its own writer for each
+  of them, and the PNG route would need a second renderer that has to look the same (the planned check is SSIM ≥ 0.99
+  between PNG and PDF). The EMF/WMF renderer item draws to `SKCanvas` and gets PDF for free with A.
+- A's workarounds are small and contained in `PdfPageWriter`: exact page sizes and the outline through PDFsharp, a
+  document-wide glyph collection before drawing (the page model is complete by then).
+
+What A can't do, as of SkiaSharp 3.119: tagged PDF (Skia's structure tree API isn't in SkiaSharp), ActualText spans
+other than per cluster, and control over the font dictionaries (Skia's subset tags are `AAAAAA+`, `BAAAAA+` … in every
+document). If tagged PDF (PDF/UA) becomes a goal, it would need post-processing or option B.
+
+### Still open
+
+- Variable fonts: the subset is the default instance. A non-default instance (a weight the font resolver picks from a
+  variable font) needs an instancer that applies gvar / HVAR deltas before subsetting; until then such a typeface
+  would go to Skia whole (Type 3).
+- CFF2 outlines can't be converted or subset yet (Type 3 through Skia).
+- HarfBuzzSharp's `Blob.FromStream` let HarfBuzz read freed memory in the spike's shaper (wrong glyphs, then a
+  crash); the shaper should hand HarfBuzz font data in memory it owns, as `Vector/GlyphOutlines.cs` does.
+
+The spike also fixed CID-keyed CFF fonts whose Top DICT and font dictionary both carry a units-per-em scale (Top DICT
+1/2048, font dictionary 1/1000, as in Pretendard): the two FontMatrix scales were multiplied, so OTF → TTF and EOT gave
+glyphs a thousand times too small. They are now combined the way rasterizers do (`CffFont.Combine`).
+
+`tests/Filee.Engines.Tests/FontSubsetterTests.cs` checks the subsetter with the small OFL test fonts (same outlines
+and advances at the same glyph IDs in Skia, composite components kept, CFF converted, tables dropped, cmap round
+trips); `tests/Filee.Engines.Tests/PdfPageWriterTests.cs` builds the page above and checks size, fonts, text and the
+PDFium picture, with each installed Korean font (Malgun Gothic, Noto Sans CJK, Noto Sans KR VF; skipped when none is
+installed), plus page sizes, links and the outline.
 
 ## DOCX writer
 

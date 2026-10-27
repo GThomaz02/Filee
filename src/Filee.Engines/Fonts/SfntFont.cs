@@ -127,6 +127,19 @@ internal sealed class SfntFont
         return font;
     }
 
+    /// <summary>Reads a TTF/OTF, or font <paramref name="faceIndex"/> of a TTC collection.</summary>
+    public static SfntFont ReadFace(byte[] data, int faceIndex)
+    {
+        if (faceIndex == 0 || data.Length < 12 || BinaryPrimitives.ReadUInt32BigEndian(data) != CollectionTag)
+            return faceIndex == 0 ? Read(data) : throw new InvalidDataException("The font file holds only one font.");
+        var reader = new BigEndianReader(data, 8);
+        var count = reader.U32();
+        if (faceIndex < 0 || faceIndex >= count)
+            throw new InvalidDataException($"The font collection has {count} fonts.");
+        reader.Skip(4 * faceIndex);
+        return Read(data, checked((int)reader.U32()));
+    }
+
     /// <summary>
     /// Writes the font: directory sorted by tag, table data in the order the OpenType spec recommends, every table
     /// 4-byte aligned, checksums and head.checkSumAdjustment computed.

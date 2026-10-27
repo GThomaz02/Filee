@@ -24,8 +24,13 @@ internal static class CffToTrueType
     private static readonly byte[] SmoothGasp = [0, 1, 0, 1, 0xFF, 0xFF, 0, 0x0F];
 
     /// <summary>Returns a TrueType-outline copy of <paramref name="source"/>.</summary>
+    /// <param name="only">
+    /// Only these glyphs are converted and the others are left empty (what the font subsetter needs); null converts
+    /// every glyph.
+    /// </param>
     /// <exception cref="NotSupportedException">CFF2 (variable) outlines.</exception>
-    public static SfntFont Convert(SfntFont source, CancellationToken cancellationToken = default, IProgress<double>? progress = null)
+    public static SfntFont Convert(SfntFont source, CancellationToken cancellationToken = default, IProgress<double>? progress = null,
+        IReadOnlySet<int>? only = null)
     {
         if (source["CFF2"] is not null)
             throw new NotSupportedException(
@@ -49,6 +54,8 @@ internal static class CffToTrueType
                 cancellationToken.ThrowIfCancellationRequested();
                 progress?.Report((double)gid / glyphCount);
             }
+            if (only is not null && !only.Contains(gid))
+                continue;
             var contours = interpreter.Run(gid);
             if (matrices[Math.Min(cff.FontDictIndex(gid), matrices.Length - 1)] is { } matrix)
                 contours = [.. contours.Select(c => Transform(c, matrix))];
