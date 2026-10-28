@@ -316,6 +316,8 @@ pt-BR: Corrigidos texto chinês lido como coreano, símbolos do Word que sumiam,
   PowerPoint → PDF or HWPX as black dots (issue #350). They're the right characters now.
 - On Linux without Korean fonts, DOCX, XLSX and other documents converted to PDF through rhwp came out without their
   text (by @Perricheno).
+- Some OpenType fonts with CFF outlines (Pretendard, for example) converted to TTF or EOT with every glyph shrunk to a
+  dot. They keep their size now.
 - Spreadsheets converted to PDF through LibreOffice could get completely empty pages. They're removed, with a note;
   PDF/A results are left as LibreOffice wrote them (by @Perricheno).
 - A file with a file name token in its own name had it filled in: `Minutes {date}.png` became `Minutes 20261022.jpg`
