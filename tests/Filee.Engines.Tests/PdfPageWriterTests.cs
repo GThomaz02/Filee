@@ -1,9 +1,10 @@
 // The Filee renderer's PDF output (Rendering/PdfPageWriter.cs): Skia's PDF backend with fonts subset by Filee. The
 // acceptance page of the "PDF backend and font subsetting" spike is built here in code: one A4 page with Korean, Latin,
-// Arabic and Devanagari paragraphs shaped by HarfBuzz, a link, outline entries and some non-text drawing. It needs
-// installed fonts (Malgun Gothic, Segoe UI, Nirmala UI on Windows) and is skipped where they are missing, like the other
-// font-dependent tests. The page also goes through the render quality harness's read-back checks (RenderQuality/).
-// Set FILEE_RENDER_OUT to a folder to keep the PDFs for a look in other viewers.
+// Arabic and Devanagari paragraphs shaped by the layout engine's shaper (Typesetting/Shaper.cs, through TestShaper), a
+// link, outline entries and some non-text drawing. It needs installed fonts (Malgun Gothic, Segoe UI, Nirmala UI on
+// Windows) and is skipped where they are missing, like the other font-dependent tests. The page also goes through the
+// render quality harness's read-back checks (RenderQuality/). Set FILEE_RENDER_OUT to a folder to keep the PDFs for a
+// look in other viewers.
 
 using System.Text;
 using Filee.Engines.Rendering;
@@ -11,6 +12,7 @@ using Filee.Engines.Tests.RenderQuality;
 using PdfSharp.Pdf.IO;
 using PDFtoImage;
 using SkiaSharp;
+using UglyToad.PdfPig.Content;
 using PdfPigDocument = UglyToad.PdfPig.PdfDocument;
 
 #pragma warning disable CA1416
