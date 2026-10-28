@@ -101,6 +101,12 @@ Windows headers, without a C runtime. Pieces of these projects that can end up i
 the x86 branch filter of the LZMA SDK (public domain, Igor Pavlov, https://www.7-zip.org/sdk.html), and the published
 app as its payload. Filee 1.x's installer was built with Inno Setup, which is no longer used.
 
+## Unicode data
+
+`src/Filee.Engines/Typesetting/UnicodeData.Generated.cs` holds Line_Break, Bidi_Class, Script and East_Asian_Width
+tables that `build/generate-unicode-tables.ps1` generates from the Unicode Character Database 16.0.0 (Unicode License
+v3, Copyright © 1991-2024 Unicode, Inc., https://www.unicode.org/license.txt).
+
 ## Fonts and icons
 
 | Component | License | Project |
