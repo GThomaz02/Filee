@@ -130,6 +130,9 @@ public class FontSubsetterTests
         {
             using var expected = a.GetGlyphPath(gid);
             using var actual = b.GetGlyphPath(gid);
+            // CoreText gives no outline for the subset of a CID-keyed CFF font yet (#702).
+            Assert.SkipWhen(actual is null && sample == CidKeyed && OperatingSystem.IsMacOS(),
+                "macOS: CoreText has no outline for the TrueType subset of a CID-keyed CFF font (#702)");
             Assert.True(actual is not null, $"glyph {gid}: the subset has no outline for it");
             Assert.Equal(a.GetGlyphWidths([gid])[0], b.GetGlyphWidths([gid])[0]);
             // CoreText (macOS) may give no outline for a CID-keyed CFF font read from memory. Filee never draws with
