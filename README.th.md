@@ -45,7 +45,8 @@
   <a href="README.pt-BR.md">Português (Brasil)</a> ·
   <a href="README.pt-PT.md">Português (Portugal)</a> ·
   <a href="README.fr.md">Français</a> ·
-  <b>ไทย</b>
+  <b>ไทย</b> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <table>
@@ -56,7 +57,7 @@
       ฟอร์แมตที่เหมาะสมจะแสดงขึ้นตรงจุดที่คุณทำงานอยู่ โดยแสดงเฉพาะฟอร์แมตที่ใช้ได้กับไฟล์ที่คุณลากเท่านั้น
     </td>
     <td width="33%" valign="top">
-      <b>267 ฟอร์แมต โดยไม่ต้องลงโปรแกรมอื่นเพิ่ม</b><br>
+      <b>268 ฟอร์แมต โดยไม่ต้องลงโปรแกรมอื่นเพิ่ม</b><br>
       รูปภาพ, PDF, Word, Excel, PowerPoint, HWP, อีบุ๊ก, ไฟล์บีบอัด, ฟอนต์, CAD, โมเดล 3D และข้อมูลเชิงพื้นที่ ทำงานได้โดยไม่ต้องมี Microsoft Office, Hancom Office หรือ LibreOffice
     </td>
     <td width="33%" valign="top">

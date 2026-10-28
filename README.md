@@ -45,7 +45,8 @@
   <a href="README.pt-BR.md">Português (Brasil)</a> ·
   <a href="README.pt-PT.md">Português (Portugal)</a> ·
   <a href="README.fr.md">Français</a> ·
-  <a href="README.th.md">ไทย</a>
+  <a href="README.th.md">ไทย</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <table>
@@ -56,7 +57,7 @@
       The formats appear where you already are, only the ones that make sense for the files you drag.
     </td>
     <td width="33%" valign="top">
-      <b>267 formats, no other software</b><br>
+      <b>268 formats, no other software</b><br>
       Images, PDF, Word, Excel, PowerPoint, HWP, e-books, archives, fonts, CAD, 3D models and geospatial data work without Office, Hancom Office or LibreOffice.
     </td>
     <td width="33%" valign="top">

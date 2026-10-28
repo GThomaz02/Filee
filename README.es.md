@@ -45,7 +45,8 @@
   <a href="README.pt-BR.md">Português (Brasil)</a> ·
   <a href="README.pt-PT.md">Português (Portugal)</a> ·
   <a href="README.fr.md">Français</a> ·
-  <a href="README.th.md">ไทย</a>
+  <a href="README.th.md">ไทย</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <table>
@@ -56,7 +57,7 @@
       Los formatos aparecen donde ya estás, y solo los que tienen sentido para los archivos que arrastras.
     </td>
     <td width="33%" valign="top">
-      <b>267 formatos, sin otros programas</b><br>
+      <b>268 formatos, sin otros programas</b><br>
       Imágenes, PDF, Word, Excel, PowerPoint, HWP, libros electrónicos, archivos comprimidos, tipografías, CAD, modelos 3D y datos geoespaciales funcionan sin Office, Hancom Office ni LibreOffice.
     </td>
     <td width="33%" valign="top">

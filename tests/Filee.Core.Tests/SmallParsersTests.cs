@@ -31,6 +31,10 @@ public class FormatRegistryTests
     [InlineData("anim.apng", "apng")]
     [InlineData("scan.dicom", "dcm")]
     [InlineData("texture.rgb", "sgi")]
+    [InlineData("archive.001", "split")]
+    [InlineData("archive.7z.001", "split")]
+    [InlineData("archive.zip.001", "split")]
+    [InlineData("archive.tar.001", "split")]
     public void Detects_formats(string path, string id) => Assert.Equal(id, FormatRegistry.Detect(path)?.Id);
 
     [Fact]

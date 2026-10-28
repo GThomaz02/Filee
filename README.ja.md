@@ -45,7 +45,8 @@
   <a href="README.pt-BR.md">Português (Brasil)</a> ·
   <a href="README.pt-PT.md">Português (Portugal)</a> ·
   <a href="README.fr.md">Français</a> ·
-  <a href="README.th.md">ไทย</a>
+  <a href="README.th.md">ไทย</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <table>
@@ -56,7 +57,7 @@
       いま作業している場所に、ドラッグ中のファイルに合う形式だけが表示されます。
     </td>
     <td width="33%" valign="top">
-      <b>267形式、ほかのソフトは不要</b><br>
+      <b>268形式、ほかのソフトは不要</b><br>
       画像、PDF、Word、Excel、PowerPoint、HWP、電子書籍、アーカイブ、フォント、CAD、3Dモデル、地理空間データを、Office、Hancom Office、LibreOfficeなしで変換できます。
     </td>
     <td width="33%" valign="top">

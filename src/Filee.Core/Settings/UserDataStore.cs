@@ -927,6 +927,10 @@ internal static class SettingsMigrations
         //      plain "same format" preset, so it is put back.
         if (from < 53)
             changed |= AddMergeImages(presets, profiles);
+        // v54: the first part of split archives and files (.001, .7z.001, .zip.001, .tar.001, #653) learns the archive
+        //      donut; custom claims stay put.
+        if (from < 54)
+            changed |= LearnExtensions(profiles, out _, ["001", "7z.001", "zip.001", "tar.001"]);
         return changed;
     }
 

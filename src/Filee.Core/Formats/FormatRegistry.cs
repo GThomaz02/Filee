@@ -299,6 +299,7 @@ public static class FormatRegistry
         new("arj", "ARJ", FormatCategory.Archive, ["arj"], Writable: false),
         new("alz", "ALZ", FormatCategory.Archive, ["alz"], Writable: false),
         new("egg", "EGG", FormatCategory.Archive, ["egg"], Writable: false),
+        new("split", "Split Archive", FormatCategory.Archive, ["001", "7z.001", "zip.001", "tar.001"], Writable: false),
         new(Folder, "Folder", FormatCategory.Archive, [""]),
 
         // CAD

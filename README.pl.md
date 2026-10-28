@@ -45,7 +45,8 @@
   <a href="README.pt-BR.md">Português (Brasil)</a> ·
   <a href="README.pt-PT.md">Português (Portugal)</a> ·
   <a href="README.fr.md">Français</a> ·
-  <a href="README.th.md">ไทย</a>
+  <a href="README.th.md">ไทย</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <table>
@@ -56,7 +57,7 @@
       Formaty pojawiają się tam, gdzie już jesteś, i tylko te, które pasują do przeciąganych plików.
     </td>
     <td width="33%" valign="top">
-      <b>267 formatów bez dodatkowych programów</b><br>
+      <b>268 formatów bez dodatkowych programów</b><br>
       Obrazy, PDF, Word, Excel, PowerPoint, HWP, e-booki, archiwa, czcionki, CAD, modele 3D i dane geoprzestrzenne działają bez pakietu Office, Hancom Office i LibreOffice.
     </td>
     <td width="33%" valign="top">

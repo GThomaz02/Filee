@@ -45,7 +45,8 @@
   <a href="README.pt-BR.md">Português (Brasil)</a> ·
   <a href="README.pt-PT.md">Português (Portugal)</a> ·
   <b>Français</b> ·
-  <a href="README.th.md">ไทย</a>
+  <a href="README.th.md">ไทย</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <table>
@@ -56,7 +57,7 @@
       Les formats apparaissent là où vous êtes déjà, et seulement ceux qui ont un sens pour les fichiers que vous faites glisser.
     </td>
     <td width="33%" valign="top">
-      <b>267 formats, sans autre logiciel</b><br>
+      <b>268 formats, sans autre logiciel</b><br>
       Images, PDF, Word, Excel, PowerPoint, HWP, livres numériques, archives, polices, CAO, modèles 3D et données géospatiales fonctionnent sans Office, Hancom Office ni LibreOffice.
     </td>
     <td width="33%" valign="top">

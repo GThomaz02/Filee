@@ -45,7 +45,8 @@
   <a href="README.pt-BR.md">Português (Brasil)</a> ·
   <a href="README.pt-PT.md">Português (Portugal)</a> ·
   <a href="README.fr.md">Français</a> ·
-  <a href="README.th.md">ไทย</a>
+  <a href="README.th.md">ไทย</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <table>
@@ -56,7 +57,7 @@
       Форматы появляются там, где вы уже работаете, и только те, что подходят перетаскиваемым файлам.
     </td>
     <td width="33%" valign="top">
-      <b>267 форматов без лишних программ</b><br>
+      <b>268 форматов без лишних программ</b><br>
       Изображения, PDF, Word, Excel, PowerPoint, HWP, электронные книги, архивы, шрифты, чертежи CAD, 3D-модели и геоданные работают без Office, Hancom Office и LibreOffice.
     </td>
     <td width="33%" valign="top">

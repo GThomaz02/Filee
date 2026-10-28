@@ -45,7 +45,8 @@
   <a href="README.pt-BR.md">Português (Brasil)</a> ·
   <a href="README.pt-PT.md">Português (Portugal)</a> ·
   <a href="README.fr.md">Français</a> ·
-  <a href="README.th.md">ไทย</a>
+  <a href="README.th.md">ไทย</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <table>
@@ -56,7 +57,7 @@
       只显示适合当前拖动文件的格式，就在你所在的位置。
     </td>
     <td width="33%" valign="top">
-      <b>267 种格式，无需其他软件</b><br>
+      <b>268 种格式，无需其他软件</b><br>
       图片、PDF、Word、Excel、PowerPoint、HWP、电子书、压缩包、字体、CAD、3D 模型和地理信息数据，无需 Office、韩文办公软件或 LibreOffice。
     </td>
     <td width="33%" valign="top">

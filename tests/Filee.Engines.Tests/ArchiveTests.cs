@@ -56,6 +56,7 @@ public class ArchiveTests(EngineFixture fx) : IClassFixture<EngineFixture>
     [InlineData("egg")]
     [InlineData("lz")]
     [InlineData("tlz")]
+    [InlineData("split")]
     public void Every_readable_archive_converts_in_one_step(string from)
     {
         var planner = fx.Catalog.CreatePlanner(["archive"]);
@@ -190,6 +191,26 @@ public class ArchiveTests(EngineFixture fx) : IClassFixture<EngineFixture>
         var folder = (await ConvertOkAsync(tgz, Extract)).Outputs.Single();
         Assert.Equal(Path.Combine(dir, "backup"), folder);
         Assert.Equal(Snapshot(tree), Snapshot(folder)); // files, not a lone backup.tar
+    }
+
+    [Fact]
+    public async Task Split_archive_001_extracts_all_volumes()
+    {
+        SkipWithout7Zip();
+        var dir = fx.NewFolder();
+        var content = "This is a split multi-part archive test payload."u8.ToArray();
+        var file = Path.Combine(dir, "document.txt");
+        await File.WriteAllBytesAsync(file, content, Ct);
+        var split7z = Path.Combine(dir, "split_archive.7z");
+        await Run7zAsync("a", "-t7z", "-v20b", split7z, file);
+        File.Delete(file);
+
+        var firstPart = Path.Combine(dir, "split_archive.7z.001");
+        Assert.True(File.Exists(firstPart));
+        Assert.True(File.Exists(Path.Combine(dir, "split_archive.7z.002")));
+
+        var folder = (await ConvertOkAsync(firstPart, Extract)).Outputs.Single();
+        Assert.Equal(content, await File.ReadAllBytesAsync(Path.Combine(folder, "document.txt"), Ct));
     }
 
     [Fact]

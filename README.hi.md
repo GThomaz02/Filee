@@ -45,7 +45,8 @@
   <a href="README.pt-BR.md">Português (Brasil)</a> ·
   <a href="README.pt-PT.md">Português (Portugal)</a> ·
   <a href="README.fr.md">Français</a> ·
-  <a href="README.th.md">ไทย</a>
+  <a href="README.th.md">ไทย</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <table>
@@ -56,7 +57,7 @@
       फ़ॉर्मैट वहीं दिखते हैं जहाँ आप पहले से हैं, और सिर्फ़ वही जो आपकी खींची जा रही फ़ाइलों के लिए सही हों।
     </td>
     <td width="33%" valign="top">
-      <b>267 फ़ॉर्मैट, कोई और सॉफ़्टवेयर नहीं</b><br>
+      <b>268 फ़ॉर्मैट, कोई और सॉफ़्टवेयर नहीं</b><br>
       इमेज, PDF, Word, Excel, PowerPoint, HWP, ई-बुक, आर्काइव, फ़ॉन्ट, CAD, 3D मॉडल और भू-स्थानिक डेटा Office, Hancom Office या LibreOffice के बिना काम करते हैं।
     </td>
     <td width="33%" valign="top">

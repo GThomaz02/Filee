@@ -33,6 +33,12 @@ public class OutputPathResolverTests
         Assert.Equal("tar.gz", FormatRegistry.ExtensionOf(source));
         Assert.Equal("gz", FormatRegistry.ExtensionOf("notes.txt.gz"));
         Assert.Equal("notes.txt", FormatRegistry.NameWithoutExtension("notes.txt.gz"));
+        Assert.Equal("split", FormatRegistry.Detect("archive.7z.001")!.Id);
+        Assert.Equal("7z.001", FormatRegistry.ExtensionOf("archive.7z.001"));
+        Assert.Equal("archive", FormatRegistry.NameWithoutExtension("archive.7z.001"));
+        Assert.Equal("split", FormatRegistry.Detect("archive.001")!.Id);
+        Assert.Equal("001", FormatRegistry.ExtensionOf("archive.001"));
+        Assert.Equal("archive", FormatRegistry.NameWithoutExtension("archive.001"));
         Assert.Equal("mp4", FormatRegistry.Detect("clip.MP4")!.Id);
         Assert.Null(FormatRegistry.Detect("README"));
     }
