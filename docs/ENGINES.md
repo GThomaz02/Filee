@@ -602,12 +602,15 @@ document). If tagged PDF (PDF/UA) becomes a goal, it would need post-processing 
 
 ### Still open
 
-- Variable fonts: the subset is the default instance. A non-default instance (a weight the font resolver picks from a
-  variable font) needs an instancer that applies gvar / HVAR deltas before subsetting; until then such a typeface
-  would go to Skia whole (Type 3).
-- CFF2 outlines can't be converted or subset yet (Type 3 through Skia).
+- Variable fonts: the subset is the default instance. A non-default instance needs an instancer that applies gvar /
+  HVAR deltas before shaping and subsetting. The font resolver doesn't pick one: it uses a variable font at its default
+  instance and reports a missing weight as synthetic (see [fonts, shaping and Unicode
+  tables](#filee-renderer-fonts-shaping-and-unicode-tables)).
+- CFF2 outlines can't be converted or subset yet (Type 3 through Skia). The font resolver uses a CFF2 font only when no
+  other font for its script is installed.
 - HarfBuzzSharp's `Blob.FromStream` let HarfBuzz read freed memory in the spike's shaper (wrong glyphs, then a
-  crash); the shaper should hand HarfBuzz font data in memory it owns, as `Vector/GlyphOutlines.cs` does.
+  crash). The layout engine's shaper (`Typesetting/Shaper.cs`) hands HarfBuzz `PageFont.Data` pinned for as long as
+  HarfBuzz's face lives.
 
 The spike also fixed CID-keyed CFF fonts whose Top DICT and font dictionary both carry a units-per-em scale (Top DICT
 1/2048, font dictionary 1/1000, as in Pretendard): the two FontMatrix scales were multiplied, so OTF → TTF and EOT gave
@@ -618,6 +621,68 @@ and advances at the same glyph IDs in Skia, composite components kept, CFF conve
 trips); `tests/Filee.Engines.Tests/PdfPageWriterTests.cs` builds the page above and checks size, fonts, text and the
 PDFium picture, with each installed Korean font (Malgun Gothic, Noto Sans CJK, Noto Sans KR VF; skipped when none is
 installed), plus page sizes, links and the outline.
+
+## Filee renderer: fonts, shaping and Unicode tables
+
+The text services of Filee's own document renderer (GitHub Project 4, item *Layout engine: font resolver, HarfBuzz
+shaper and Unicode tables*), in `src/Filee.Engines/Typesetting`. No converter uses them yet; paragraph layout, CJK
+typography and the bidirectional algorithm build on them. They use only what Filee already runs in-process: SkiaSharp's
+font manager, HarfBuzzSharp and .NET.
+
+- **Font slots** (`FontSlots.cs`): which of a run's fonts draws a character. 한글's seven language slots (한글, 영문, 한자,
+  일어, 외국어, 기호, 사용자) go by script: ASCII, Latin-1 and the spacing modifiers to 영문, quotes, dashes, CJK
+  punctuation, fullwidth forms and other symbols to 기호, private use to 사용자, Greek, Cyrillic, Arabic, Thai, ... to
+  외국어. Word's four run fonts: ASCII to `ascii`, right-to-left, Brahmic and Southeast Asian scripts to `cs`, CJK
+  scripts and blocks to `eastAsia`, the rest to `hAnsi`; with `w:hint="eastAsia"` ambiguous-width characters and
+  private use go to `eastAsia`. Word's finer rule for Latin-1 letters in Chinese text (hint plus East Asian language)
+  isn't made. A grapheme cluster takes the slot of its first character, so marks stay with their base.
+- **Font resolver** (`FontResolver.cs`, `FontNames.cs`, `SystemFonts.cs`): installed fonts through `SKFontManager`
+  (DirectWrite, CoreText, fontconfig); nothing is downloaded or shipped.
+  - Names: a family is found by its name, by its name without trailing style words ("Pretendard Medium" is weight
+    500), and by other names: Korean ↔ English names (함초롬바탕 ↔ HCR Batang, 맑은 고딕 ↔ Malgun Gothic, the HY
+    fonts, Nanum fonts; checked against the fonts' name tables), the fonts built into 한글 (한양신명조, 한양중고딕, ...)
+    → the HY TrueType fonts of the same design, and metric-compatible replacements (Arial → Liberation Sans, Calibri →
+    Carlito, ...). Generic families (serif, sans-serif, monospace) get the language's default fonts.
+  - Style: the face nearest the requested weight and slant by the CSS matching rules. A bold or italic the family
+    lacks is reported as synthetic (`ResolvedFont.SyntheticBold` / `SyntheticItalic`) for the drawing to fake.
+  - Missing fonts and the document-wide rules come from `RhwpFonts.cs`, now shared (`FontSubstitution.cs`): a missing
+    font is replaced by an installed one of the script its name points to (else the text's language) and the same
+    style (serif or sans); `Plan` swaps Korean default fonts in Chinese or Japanese text (#64) and gives text without
+    Hangul, Han or kana one font that has all of it. rhwp keeps using the same rules through `RhwpFonts`.
+  - Per-cluster fallback: a run is split into pieces each drawn by one font. A grapheme cluster keeps the run's font
+    when it has every character of it, else takes a font already used in the run, a font for its script (a list per
+    script: Nirmala UI, Leelawadee UI, Noto, Lohit, ... ; Han by the text's language), then the platform's own
+    fallback (`SKFontManager.MatchCharacter`). Punctuation and spaces stay with the font of the text around them.
+  - Variable fonts are used at their default instance: HarfBuzzSharp 8.3 has no binding for variation coordinates, the
+    PDF subset is the default instance, and Filee has no instancer. DirectWrite's named instances of one variable
+    font count as one face, with the weight the font's own OS/2 table gives; a heavier weight is synthetic bold.
+  - CFF2 fonts (Source Han VF and the like) are used only when no other font for their script is installed: the
+    subsetter can't take them, so Skia would embed them as Type 3 fonts (still searchable, not subset).
+- **Shaper** (`Shaper.cs`): HarfBuzz shaping generalised from `Vector/GlyphOutlines.cs`. A run is shaped with up to
+  five characters of the paragraph on either side as context (HarfBuzz's own context length), so a word split into two
+  runs still joins and reorders as one. Results are in font units, cached by font, features, script, direction,
+  language and the run's text with its context, and carry glyph IDs, advances, offsets, HarfBuzz's cluster per glyph
+  (monotone graphemes, visual order) and its unsafe-to-break flags for the line breaker. `ShapedRun.ToGlyphRun` makes
+  the page model's `GlyphRun` (`PdfPageWriterTests` now builds its page with it). `Shaper.Metrics` gives ascender,
+  descender, line gap, Win metrics, x-height, cap height, underline, strikeout and super / subscript metrics.
+- **Unicode tables** (`UnicodeData.cs`, `UnicodeData.Generated.cs`): Line_Break, Bidi_Class, Script and
+  East_Asian_Width for every code point, as range tables searched by binary search; unassigned code points get the
+  UCD's defaults (`@missing` lines: ID for the CJK blocks, R and AL for the right-to-left blocks, ...).
+  `build/generate-unicode-tables.ps1` downloads the pinned UCD files from unicode.org into `build/.cache` (SHA-256
+  checked, not committed) and writes the C# file, which is committed (Unicode License v3, in THIRD-PARTY-NOTICES.md).
+  - Version: **Unicode 16.0.0**, the version .NET 10 uses for `CharUnicodeInfo`, `Rune` and `StringInfo` (checked by
+    a test over every code point), so the layout engine's properties and .NET's grapheme clusters and categories agree.
+    HarfBuzz 8.3 inside HarfBuzzSharp uses Unicode 15.1 for its own normalization and mark handling; the scripts added
+    in 16.0 (Garay, Todhri, Sunuwar, ...) shape with HarfBuzz's default shaper until HarfBuzzSharp moves on. Change the
+    version together with the target framework: update `$Version` and the hashes and run the script.
+
+Tests: `FontSlotsTests`, `UnicodeDataTests`, `FontResolverTests` (a fake font list like `RhwpFontsTests`, plus one
+check of the installed Malgun Gothic) and `ShaperTests`. The shaper is checked three ways for Arabic, Devanagari,
+Gujarati, Thai and Hangul jamo: against HarfBuzz itself (the text shaped the plain way, one buffer with guessed
+properties) with every installed font of the script, against recorded HarfBuzz output for the pinned Noto fonts of
+`build/fetch-fonts.ps1` (CI fetches them; there is no pinned Gujarati font), and by what each script needs whatever the
+font (joining forms and lam-alef, vowel signs drawn before their consonant, conjuncts, the SARA AM split, jamo composed
+into precomposed syllables, a dotted circle only for a broken cluster).
 
 ## DOCX writer
 

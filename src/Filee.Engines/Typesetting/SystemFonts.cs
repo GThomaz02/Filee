@@ -1,0 +1,97 @@
+// The fonts installed on the computer, through Skia's font manager: DirectWrite on Windows, CoreText on macOS and
+// fontconfig on Linux. Nothing is downloaded or shipped.
+//
+// - Windows matches localized family names ("맑은 고딕") and returns nothing for unknown ones. fontconfig (and
+//   CoreText) answer an unknown family with some installed font, so elsewhere only faces whose family name is the
+//   requested one count.
+// - Style, variable and CFF2 flags come from the font's own tables (OS/2, fvar, CFF2), not from what the font
+//   manager reports: DirectWrite lists the named instances of a variable font as faces of their own, but their data
+//   is the whole font, which shapes and draws at its default instance.
+// - Typefaces are never disposed: SkiaSharp hands out one wrapper per native typeface, so it may be the very object
+//   the UI, Svg.Skia or the CAD fonts still draw with (see RhwpFonts.Find).
+
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using Filee.Engines.Rendering;
+using SkiaSharp;
+
+namespace Filee.Engines.Typesetting;
+
+/// <summary>The installed fonts.</summary>
+internal sealed class SystemFonts : IFontCollection
+{
+    private static readonly uint Os2 = Tag("OS/2"), Fvar = Tag("fvar"), Cff2 = Tag("CFF2");
+
+    private readonly ConcurrentDictionary<string, IReadOnlyList<FontFace>> _families = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<(string Family, int Weight, bool Italic), FontFace> _fallbacks = new();
+
+    private SystemFonts()
+    {
+    }
+
+    public static SystemFonts Instance { get; } = new();
+
+    /// <summary>Forgets the fonts looked up so far (<see cref="Infrastructure.EngineCaches.Release"/>).</summary>
+    internal static void ReleaseCache()
+    {
+        Instance._families.Clear();
+        Instance._fallbacks.Clear();
+    }
+
+    public IReadOnlyList<FontFace> Family(string name) => _families.GetOrAdd(name, static name =>
+    {
+        using var styles = SKFontManager.Default.GetFontStyles(name);
+        if (styles is null)
+            return [];
+        var faces = new List<FontFace>();
+        for (var i = 0; i < styles.Count; i++)
+        {
+            var typeface = styles.CreateTypeface(i);
+            if (typeface is null)
+                continue;
+            if (!OperatingSystem.IsWindows() && !string.Equals(typeface.FamilyName, name, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var face = Face(name, typeface);
+            // The named instances of a variable font are one face: the same data, the same default instance.
+            if (!faces.Any(f => f.Weight == face.Weight && f.Italic == face.Italic))
+                faces.Add(face);
+        }
+        return faces;
+    });
+
+    public FontFace? ForCharacter(int codePoint, FontStyle style, string? language)
+    {
+        var typeface = SKFontManager.Default.MatchCharacter(null, style.Weight, (int)SKFontStyleWidth.Normal,
+            style.Italic ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright, language is null ? [] : [language], codePoint);
+        if (typeface is null || typeface.GetGlyph(codePoint) == 0)
+            return null;
+        var probe = Face(typeface.FamilyName, typeface);
+        return _fallbacks.GetOrAdd((typeface.FamilyName, probe.Weight, probe.Italic), _ => probe);
+    }
+
+    /// <summary>A face over a typeface Skia found, with its style read from the font's tables.</summary>
+    private static FontFace Face(string family, SKTypeface typeface)
+    {
+        var tags = typeface.GetTableTags() ?? [];
+        var weight = typeface.FontWeight;
+        var italic = typeface.FontSlant != SKFontStyleSlant.Upright;
+        if (typeface.TryGetTableData(Os2, out var os2) && os2.Length >= 64)
+        {
+            // Some old fonts store the weight class as 1–9.
+            weight = BinaryPrimitives.ReadUInt16BigEndian(os2.AsSpan(4)) switch
+            {
+                0 => weight,
+                < 10 and var small => small * 100,
+                var value => Math.Min((int)value, 1000),
+            };
+            italic = (os2[63] & 1) != 0; // fsSelection bit 0: ITALIC
+        }
+        return new FontFace(family, weight, italic, codePoint => typeface.GetGlyph(codePoint) != 0, () => PageFont.FromTypeface(typeface))
+        {
+            Variable = tags.Contains(Fvar),
+            Cff2 = tags.Contains(Cff2),
+        };
+    }
+
+    private static uint Tag(string tag) => (uint)tag[0] << 24 | (uint)tag[1] << 16 | (uint)tag[2] << 8 | tag[3];
+}
