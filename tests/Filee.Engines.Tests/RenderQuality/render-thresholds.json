@@ -1,0 +1,52 @@
+// Render quality thresholds (tests/Filee.Engines.Tests/RenderQuality, docs/RENDER-QUALITY.md).
+//
+// A measurement must meet the ideal (the exact text, no overlapping glyphs, nothing outside the page or the margins,
+// the page count, the line pitch, every font embedded and subset; for compares: the same pages, lines and baselines
+// and SSIM >= 0.999) unless a threshold below says what the renderer reaches today. It must never fall below that:
+// a worse value fails the test. A better one is reported, and the threshold is raised (or removed) in the same change.
+// "allow" lists measurements that are reported but never fail, each with its reason.
+//
+// rhwp's values were measured on Windows (Malgun Gothic, Segoe UI, Nirmala UI, Leelawadee UI, Microsoft YaHei, Yu
+// Gothic) with rhwp 0.8.7.
+{
+  "thresholds": {
+    "rhwp": {
+      // Square wrap isn't kept and the paragraphs after the floating objects are drawn over each other.
+      "floating": { "overlaps": 0.1265 },
+      // E = mc²: m and c of the inline equation overlap.
+      "equations": { "overlaps": 0.0304 },
+      // Unshaped text at rhwp's fixed widths (#185, #202, rhwp#8143). Overlaps are a share of neighbouring glyphs.
+      "script-ar": { "overlaps": 0.487 },
+      "script-he": { "overlaps": 0.6 },
+      "script-hi": { "overlaps": 0.6725 },
+      "script-gu": { "overlaps": 0.6404 },
+      // ำ (SARA AM) is drawn as its two parts, so the text doesn't round-trip.
+      "script-th": { "text": 0.9734, "overlaps": 0.2141 },
+
+      // Only in the full run (FILEE_RENDER_FULL=1), where every feature is also rendered from a binary HWP made by
+      // rhwp convert. From the HWP, rhwp draws 。 and 、 half an em over the next character (so the lines break
+      // elsewhere) and places the equations differently.
+      "floating.hwp": { "overlaps": 0.1265 },
+      "equations.hwp": { "overlaps": 0.0304, "placed": 0.375, "ssim": 0.5044 },
+      "script-zh.hwp": { "overlaps": 0.0215, "lines": 0, "placed": 0, "ssim": 0.234 },
+      "script-ja.hwp": { "overlaps": 0.0404, "lines": 0, "placed": 0, "ssim": 0.1858 },
+      "script-ar.hwp": { "overlaps": 0.487 },
+      "script-he.hwp": { "overlaps": 0.5965 },
+      "script-hi.hwp": { "overlaps": 0.6707 },
+      "script-gu.hwp": { "overlaps": 0.6387 },
+      "script-th.hwp": { "text": 0.9734, "overlaps": 0.1709 }
+    },
+    // Filee's layout engine (DocumentRenderers.Candidate): its own read-back checks and vs-rhwp-* compares.
+    "filee": {}
+  },
+  "allow": [
+    // Where rhwp is wrong, Filee's renderer can't agree with it: the compare is reported, never failed.
+    { "renderer": "filee", "feature": "floating", "check": "vs-rhwp-*", "reason": "rhwp ignores square wrap and overlaps the paragraphs after floating objects" },
+    { "renderer": "filee", "feature": "equations", "check": "vs-rhwp-*", "reason": "rhwp lays out equations itself, Filee's engine draws them its own way" },
+    { "renderer": "filee", "feature": "script-ar", "check": "vs-rhwp-*", "reason": "rhwp draws Arabic unshaped, left to right (#202)" },
+    { "renderer": "filee", "feature": "script-he", "check": "vs-rhwp-*", "reason": "rhwp draws Hebrew left to right at fixed widths (rhwp#8143)" },
+    { "renderer": "filee", "feature": "script-hi", "check": "vs-rhwp-*", "reason": "rhwp draws Devanagari unshaped (#185)" },
+    { "renderer": "filee", "feature": "script-gu", "check": "vs-rhwp-*", "reason": "rhwp draws Gujarati unshaped (#185)" },
+    { "renderer": "filee", "feature": "script-th", "check": "vs-rhwp-*", "reason": "rhwp draws Thai marks at fixed widths and breaks lines without a dictionary" }
+  ]
+}

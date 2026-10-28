@@ -2,17 +2,15 @@
 // acceptance page of the "PDF backend and font subsetting" spike is built here in code: one A4 page with Korean, Latin,
 // Arabic and Devanagari paragraphs shaped by HarfBuzz, a link, outline entries and some non-text drawing. It needs
 // installed fonts (Malgun Gothic, Segoe UI, Nirmala UI on Windows) and is skipped where they are missing, like the other
-// font-dependent tests. Set FILEE_RENDER_OUT to a folder to keep the PDFs for a look in other viewers.
+// font-dependent tests. The page also goes through the render quality harness's read-back checks (RenderQuality/).
+// Set FILEE_RENDER_OUT to a folder to keep the PDFs for a look in other viewers.
 
-using System.Runtime.InteropServices;
 using System.Text;
 using Filee.Engines.Rendering;
-using HarfBuzzSharp;
+using Filee.Engines.Tests.RenderQuality;
 using PdfSharp.Pdf.IO;
 using PDFtoImage;
 using SkiaSharp;
-using UglyToad.PdfPig.Content;
-using Buffer = HarfBuzzSharp.Buffer;
 using PdfPigDocument = UglyToad.PdfPig.PdfDocument;
 
 #pragma warning disable CA1416
@@ -44,7 +42,7 @@ public sealed class PdfPageWriterTests : IDisposable
         "फ़ाइली खोजने योग्य पीडीएफ़ फ़ाइलें लिखता है: हर फ़ॉन्ट का केवल वह हिस्सा जोड़ा जाता है जिसके अक्षर पृष्ठ पर " +
         "इस्तेमाल हुए हैं। हिन्दी में संयुक्ताक्षर जैसे क्ष, त्र, ज्ञ और श्र भी सही दिखने चाहिए।";
 
-    private readonly Shaper _shaper = new();
+    private readonly TestShaper _shaper = new();
 
     public void Dispose() => _shaper.Dispose();
 
@@ -77,7 +75,7 @@ public sealed class PdfPageWriterTests : IDisposable
 
         // Under 200 KB with every font embedded and subset.
         Assert.True(pdf.Length < 200_000, $"{pdf.Length:N0} bytes");
-        var fonts = Fonts(pdf);
+        var fonts = PdfChecks.ListFonts(pdf);
         Assert.Equal(3, fonts.Count);
         foreach (var font in fonts)
         {
@@ -88,13 +86,26 @@ public sealed class PdfPageWriterTests : IDisposable
         Assert.True(fonts.Sum(f => f.Length) < new FileInfo(korean!).Length / 10);
 
         // The exact source text, Arabic in logical order, clusters whole.
-        Assert.Equal(text, ReadBack(pdf));
+        Assert.Equal(text, PdfLines.Text(pdf));
+
+        // The render quality harness's read-back checks: the text, no glyphs drawn over each other, everything inside
+        // the page and its 50 pt margins, every font embedded and subset. Segoe UI kerns reh and zain 0.08 em under a
+        // letter that doesn't join them, so overlaps up to 0.1 em are the font's own.
+        Assert.All(new[]
+        {
+            PdfChecks.TextRoundTrip(pdf, text),
+            PdfChecks.OverlappingGlyphs(pdf, tolerance: 0.1),
+            PdfChecks.GlyphsOutsidePage(pdf),
+            PdfChecks.GlyphsOutsideMargins(pdf, new PageMargins(Margin, Margin, Margin, Margin)),
+            PdfChecks.PageCount(pdf, 1),
+            PdfChecks.FontsEmbeddedAndSubset(pdf),
+        }, check => Assert.True(check.Ok, check.ToString()));
 
         // PDFium draws what Skia draws (rendered at 3× and averaged down, so rasterizer anti-aliasing differences fade).
         const int Dpi = 100;
         using var pdfium = Conversion.ToImage(pdf, 0, null, new RenderOptions(Dpi: 3 * Dpi, WithAnnotations: false, BackgroundColor: SKColors.White));
         using var skia = Raster(page, 3 * Dpi);
-        var (ssim, off) = Compare(Downsample(pdfium, 3), Downsample(skia, 3));
+        var (ssim, off) = Ssim.Compare(GreyImage.From(pdfium, 3), GreyImage.From(skia, 3));
         Assert.True(ssim > 0.9 && off < 0.01, $"SSIM {ssim:F4}, {off:P2} of the pixels differ");
     }
 
@@ -148,10 +159,10 @@ public sealed class PdfPageWriterTests : IDisposable
 
         var pdf = Write([page]);
 
-        var font = Assert.Single(Fonts(pdf));
+        var font = Assert.Single(PdfChecks.ListFonts(pdf));
         Assert.Equal("/Type0", font.Subtype);
         Assert.Equal("/FontFile2", font.File);
-        Assert.Equal("Filee 한글 변환", ReadBack(pdf));
+        Assert.Equal("Filee 한글 변환", PdfLines.Text(pdf));
     }
 
     [Fact]
@@ -257,66 +268,6 @@ public sealed class PdfPageWriterTests : IDisposable
         return lines;
     }
 
-    /// <summary>HarfBuzz shaping of one run in one font (the layout engine's shaper is a later step).</summary>
-    private sealed class Shaper : IDisposable
-    {
-        private readonly Dictionary<PageFont, (Blob Blob, Face Face, HarfBuzzSharp.Font Font)> _fonts = new(ReferenceEqualityComparer.Instance);
-
-        public float Width(PageFont font, float size, string text) => Shape(font, size, text, 0, 0).Width;
-
-        /// <summary>Shapes <paramref name="text"/> with the pen starting at x on baseline y (page coordinates).</summary>
-        public (GlyphRun Run, float Width) Shape(PageFont font, float size, string text, float x, float y, SKColor? color = null)
-        {
-            var (hb, upem) = For(font);
-            using var buffer = new Buffer();
-            buffer.AddUtf16(text);
-            buffer.GuessSegmentProperties();
-            hb.Shape(buffer);
-            var infos = buffer.GlyphInfos;
-            var positions = buffer.GlyphPositions;
-            var scale = size / upem;
-            var glyphs = new ushort[infos.Length];
-            var points = new SKPoint[infos.Length];
-            var clusters = new int[infos.Length];
-            var pen = 0f;
-            for (var i = 0; i < infos.Length; i++)
-            {
-                glyphs[i] = (ushort)infos[i].Codepoint;
-                clusters[i] = (int)infos[i].Cluster;
-                points[i] = new SKPoint(x + pen + positions[i].XOffset * scale, y - positions[i].YOffset * scale);
-                pen += positions[i].XAdvance * scale;
-            }
-            return (new GlyphRun(font, size, glyphs, points, text, clusters) { Color = color ?? SKColors.Black }, pen);
-        }
-
-        private (HarfBuzzSharp.Font Font, int Upem) For(PageFont font)
-        {
-            if (!_fonts.TryGetValue(font, out var entry))
-            {
-                // A native copy the blob owns: HarfBuzz reads the font data for as long as the face lives.
-                var memory = Marshal.AllocHGlobal(font.Data.Length);
-                Marshal.Copy(font.Data, 0, memory, font.Data.Length);
-                var blob = new Blob(memory, font.Data.Length, MemoryMode.ReadOnly, () => Marshal.FreeHGlobal(memory));
-                var face = new Face(blob, font.FaceIndex);
-                var hb = new HarfBuzzSharp.Font(face);
-                hb.SetScale(face.UnitsPerEm, face.UnitsPerEm);
-                hb.SetFunctionsOpenType();
-                _fonts[font] = entry = (blob, face, hb);
-            }
-            return (entry.Font, entry.Face.UnitsPerEm);
-        }
-
-        public void Dispose()
-        {
-            foreach (var (blob, face, font) in _fonts.Values)
-            {
-                font.Dispose();
-                face.Dispose();
-                blob.Dispose();
-            }
-        }
-    }
-
     // ───────────────────────── Checks ─────────────────────────
 
     private static byte[] Write(IReadOnlyList<PageContent> pages, PdfDocumentInfo? info = null)
@@ -358,66 +309,6 @@ public sealed class PdfPageWriterTests : IDisposable
         return null;
     }
 
-    private sealed record FontInfo(string BaseFont, string Subtype, string? File, int Length);
-
-    /// <summary>The fonts of every page: Type 0 fonts are described by their descendant.</summary>
-    private static List<FontInfo> Fonts(byte[] pdf)
-    {
-        using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import);
-        var result = new List<FontInfo>();
-        foreach (var page in document.Pages)
-        {
-            if (page.Resources.Elements.GetDictionary("/Font") is not { } fonts)
-                continue;
-            foreach (var key in fonts.Elements.Keys)
-            {
-                var font = fonts.Elements.GetDictionary(key)!;
-                var subtype = font.Elements.GetName("/Subtype");
-                var described = subtype == "/Type0" ? font.Elements.GetArray("/DescendantFonts")!.Elements.GetDictionary(0)! : font;
-                var descriptor = described.Elements.GetDictionary("/FontDescriptor");
-                var file = new[] { "/FontFile", "/FontFile2", "/FontFile3" }.FirstOrDefault(k => descriptor?.Elements.GetDictionary(k) is not null);
-                result.Add(new FontInfo(font.Elements.GetName("/BaseFont"), subtype, file, file is null ? 0 : descriptor!.Elements.GetDictionary(file)!.Stream.Length));
-            }
-        }
-        return result;
-    }
-
-    /// <summary>The text in content-stream order, the glyphs of each /ActualText span replaced by its text.</summary>
-    private static string ReadBack(byte[] pdf)
-    {
-        using var document = PdfPigDocument.Open(pdf);
-        var result = new StringBuilder();
-        foreach (var page in document.GetPages())
-        {
-            var spans = new Dictionary<Letter, MarkedContentElement>(ReferenceEqualityComparer.Instance);
-            void Walk(IEnumerable<MarkedContentElement> elements)
-            {
-                foreach (var element in elements)
-                {
-                    if (element.ActualText is null)
-                    {
-                        Walk(element.Children);
-                        continue;
-                    }
-                    foreach (var letter in All(element))
-                        spans.TryAdd(letter, element);
-                }
-            }
-            Walk(page.GetMarkedContents());
-            var done = new HashSet<MarkedContentElement>(ReferenceEqualityComparer.Instance);
-            foreach (var letter in page.Letters)
-            {
-                if (!spans.TryGetValue(letter, out var span))
-                    result.Append(letter.Value);
-                else if (done.Add(span))
-                    result.Append(span.ActualText);
-            }
-        }
-        return result.ToString();
-
-        static IEnumerable<Letter> All(MarkedContentElement element) => element.Letters.Concat(element.Children.SelectMany(All));
-    }
-
     private static SKBitmap Raster(PageContent page, int dpi)
     {
         var scale = dpi / 72f;
@@ -427,80 +318,5 @@ public sealed class PdfPageWriterTests : IDisposable
         canvas.Scale(scale);
         page.Draw(canvas);
         return bitmap;
-    }
-
-    /// <summary>Grey levels averaged over <paramref name="factor"/>² blocks.</summary>
-    private static (int Width, int Height, double[] Grey) Downsample(SKBitmap bitmap, int factor)
-    {
-        using var grey = new SKBitmap(bitmap.Width, bitmap.Height, SKColorType.Gray8, SKAlphaType.Opaque);
-        using (var canvas = new SKCanvas(grey))
-            canvas.DrawBitmap(bitmap, 0, 0);
-        var pixels = grey.GetPixelSpan();
-        var stride = grey.RowBytes;
-        int width = bitmap.Width / factor, height = bitmap.Height / factor;
-        var result = new double[width * height];
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                var sum = 0;
-                for (var j = 0; j < factor; j++)
-                    for (var i = 0; i < factor; i++)
-                        sum += pixels[(y * factor + j) * stride + x * factor + i];
-                result[y * width + x] = (double)sum / (factor * factor);
-            }
-        }
-        return (width, height, result);
-    }
-
-    /// <summary>
-    /// Mean SSIM over 8×8 windows (step 4) that have ink in either picture, and the share of pixels whose grey levels
-    /// differ by more than 64.
-    /// </summary>
-    private static (double Ssim, double Off) Compare((int Width, int Height, double[] Grey) a, (int Width, int Height, double[] Grey) b)
-    {
-        int w = Math.Min(a.Width, b.Width), h = Math.Min(a.Height, b.Height);
-        double At((int Width, int Height, double[] Grey) p, int x, int y) => p.Grey[y * p.Width + x];
-        const double C1 = 6.5025, C2 = 58.5225;
-        double sum = 0;
-        var windows = 0;
-        for (var y = 0; y + 8 <= h; y += 4)
-        {
-            for (var x = 0; x + 8 <= w; x += 4)
-            {
-                double ma = 0, mb = 0;
-                for (var j = 0; j < 8; j++)
-                    for (var i = 0; i < 8; i++)
-                    {
-                        ma += At(a, x + i, y + j);
-                        mb += At(b, x + i, y + j);
-                    }
-                ma /= 64;
-                mb /= 64;
-                double va = 0, vb = 0, cov = 0;
-                for (var j = 0; j < 8; j++)
-                    for (var i = 0; i < 8; i++)
-                    {
-                        var da = At(a, x + i, y + j) - ma;
-                        var db = At(b, x + i, y + j) - mb;
-                        va += da * da;
-                        vb += db * db;
-                        cov += da * db;
-                    }
-                if (va + vb < 1e-9 && ma > 250 && mb > 250)
-                    continue;
-                va /= 63;
-                vb /= 63;
-                cov /= 63;
-                sum += (2 * ma * mb + C1) * (2 * cov + C2) / ((ma * ma + mb * mb + C1) * (va + vb + C2));
-                windows++;
-            }
-        }
-        var off = 0;
-        for (var y = 0; y < h; y++)
-            for (var x = 0; x < w; x++)
-                if (Math.Abs(At(a, x, y) - At(b, x, y)) > 64)
-                    off++;
-        return (windows == 0 ? 1 : sum / windows, (double)off / (w * h));
     }
 }
