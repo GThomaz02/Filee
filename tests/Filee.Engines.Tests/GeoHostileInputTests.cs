@@ -7,6 +7,7 @@ using System.IO.Compression;
 using System.Text;
 using Filee.Core.Conversion;
 using Filee.Engines.Geo;
+using Filee.Engines.Infrastructure;
 
 namespace Filee.Engines.Tests;
 

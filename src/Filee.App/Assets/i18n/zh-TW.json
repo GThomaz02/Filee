@@ -136,6 +136,7 @@
   "error.fon_unsupported": "不支援此類 .fon 字型",
   "error.fon_too_large": ".fon 字型太大，無法轉換",
   "error.fon_damaged": ".fon 檔案已損壞或不完整",
+  "error.document_too_complex": "文件過大或過於複雜，無法安全讀取",
   "error.m4s_needs_init": "此 .m4s 是串流影片的一個片段，沒有另外的起始（init）區段就無法讀取",
   "notice.pdf_not_smaller": "無法再縮小，已原樣複製",
   "notice.cad_newer_left_out": "已略過所選 AutoCAD 版本沒有的物件（複線引線、網格……）",

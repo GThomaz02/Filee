@@ -130,6 +130,7 @@
   "error.fon_unsupported": "Bu tür .fon yazı tipi desteklenmiyor",
   "error.fon_too_large": ".fon yazı tipi dönüştürmek için çok büyük",
   "error.fon_damaged": ".fon dosyası hasarlı veya eksik",
+  "error.document_too_complex": "Belge güvenli şekilde okunamayacak kadar büyük veya karmaşık",
   "error.m4s_needs_init": "Bu .m4s, akışla gelen bir videonun bir parçası: ayrı başlangıç (init) segmenti olmadan okunamaz",
   "notice.pdf_not_smaller": "Küçültülemediği için olduğu gibi kopyalandı",
   "notice.cad_newer_left_out": "Seçilen AutoCAD sürümünün desteklemediği nesneler (çoklu kılavuzlar, ağlar…) çıkarıldı",

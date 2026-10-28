@@ -628,7 +628,8 @@ sits on the office donut (settings schema 27 teaches existing donuts `.ofd`).
   resource files (PublicRes, DocumentRes, a page's PageRes, and the unnamed `Res.xml` WPS writes next to them).
   Parts are looked up by name inside the ZIP and never written out under their own names; references are resolved
   against the referring part (or the package root for "/…"), "." and ".." applied, and anything that leaves the
-  package, a URL or a drive path finds nothing. XML is read without DTDs; a part may unpack to 64 MB, a picture to
+  package, a URL or a drive path finds nothing. The package is read like HWPX and DOCX (`Documents/DocumentPackage.cs`,
+  see [HWPX reader](#hwpx-reader)): XML without DTDs; a part may unpack to 64 MB, a picture to
   32 MB (larger ones are left out), the whole package to 1 GB; at most 100,000 parts, 10,000 pages, 2,000,000
   drawing objects, page blocks nested 32 deep. DeltaX / DeltaY "g n d" repeats never yield more values than the
   text has characters.
@@ -1233,6 +1234,31 @@ Not kept (the model has no place for them; skipped and counted by the `Read(path
 OLE objects, charts, video, form controls, text art (its text is kept), arcs / polygons / curves without text,
 master pages, memos, character ratio, relative size and offset, paragraph borders, picture cropping and rotation.
 Password-protected (encrypted) HWPX and DRM-wrapped files stop with a clear error.
+
+**Limits.** Untrusted documents must not hang, exhaust the memory or crash Filee. The HWPX, DOCX and OFD readers (and
+the HWP 5.0 reader and the layout engine when they come) share `Documents/DocumentLimits.cs`; a document that passes
+one stops with `error.document_too_complex` and says which:
+
+- the package (`Documents/DocumentPackage.cs`): at most 100,000 parts; a part may unpack to 64 MB, all parts together
+  to 1 GB, counted while they unpack (a ZIP header can understate a size), and a part over 4 MB to no more than 200
+  times its packed size; parts are found by name inside the package only, and extracted pictures get names Filee
+  makes (`hwpx-media-1.png`), never the part's;
+- XML (`Infrastructure/SafeXml.cs`, also used for KML and GPX): no DTD and no resolver, so no entity expands and
+  nothing outside the package is read; at most 512 levels deep and 5,000,000 elements in a package;
+- the document (`Documents/DocumentBudget.cs`): tables in tables, text boxes, notes, groups and fields nest at most 32
+  levels; at most 1,000,000 paragraphs and 200,000 tables, pictures and drawing objects; table columns, spans and
+  row spans are cut to the table (at most 16,384 columns); Word style chains are followed 20 styles deep;
+- pictures (`Documents/PictureSize.cs`): one whose PNG, JPEG, GIF, BMP or WebP header claims more than
+  16,384 × 16,384 pixels is left out before anything decodes it;
+- layout (`Documents/LayoutGuard.cs`, for the layout engine): at most 20,000 pages, 64 empty pages in a row, ten minutes;
+  cancellation and the time are checked per paragraph, and an object larger than the page is clipped and placed.
+
+Embedded fonts (DOCX `word/fonts`, HWPX and OFD font files) are not read; a reader that uses them must pass them
+through Filee's SFNT parser (`Fonts/SfntFont.cs`) first. `DocumentHostileInputTests` holds ZIP bombs, deep nesting,
+DTDs and huge pictures; `DocumentFuzzTests` changes packages written in code at random (attributes set to extreme
+values, elements removed, repeated, renamed or nested, text and bytes damaged) and allows a reader only to read a
+file or refuse it with `InvalidDataException` / `ConversionRefusedException`. It runs briefly with every test run and
+for a few minutes per reader every night (`.github/workflows/fuzz.yml`); `FILEE_FUZZ_SEED` repeats a run.
 
 ## E-books
 

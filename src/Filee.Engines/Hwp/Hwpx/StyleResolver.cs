@@ -8,8 +8,9 @@
 // coloured) and the per-language slots the writer fills from Font / EastAsianFont / Spacing. Rendering detail the
 // source set (HParaLayout, HCharLayout) wins over the style's.
 
-using System.IO.Compression;
+using System.Xml;
 using System.Xml.Linq;
+using Filee.Engines.Documents;
 
 namespace Filee.Engines.Hwp.Hwpx;
 
@@ -41,10 +42,18 @@ internal sealed class StyleResolver
         var stream = template ?? HwpxWriter.OpenBuiltInTemplate();
         try
         {
-            using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
-            var entry = zip.GetEntry("Contents/header.xml") ?? throw new InvalidDataException("The template has no Contents/header.xml.");
-            using var header = entry.Open();
-            return new StyleResolver(XDocument.Load(header).Root ?? throw new InvalidDataException("header.xml has no root element."));
+            using var package = DocumentPackage.Open(stream);
+            var entry = package.GetEntry("Contents/header.xml") ?? throw new InvalidDataException("The template has no Contents/header.xml.");
+            XDocument header;
+            try
+            {
+                header = package.LoadXml(entry, preserveWhitespace: false);
+            }
+            catch (XmlException ex)
+            {
+                throw new InvalidDataException($"The template's header.xml is not valid XML ({ex.Message}).", ex);
+            }
+            return new StyleResolver(header.Root ?? throw new InvalidDataException("header.xml has no root element."));
         }
         finally
         {

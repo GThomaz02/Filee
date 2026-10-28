@@ -14,9 +14,9 @@
 // and master pages are read. Both fill the rendering detail of formats and objects (HwpxModel.Layout.cs).
 
 using System.Globalization;
-using System.IO.Compression;
 using System.Xml;
 using System.Xml.Linq;
+using Filee.Engines.Documents;
 
 namespace Filee.Engines.Hwp.Hwpx;
 
@@ -34,9 +34,12 @@ internal sealed partial class HwpxReader
     /// </summary>
     internal const string EstimatedLinesMeta = "FileeLineSegments";
 
-    private readonly ZipArchive? _zip;
+    private readonly DocumentPackage? _package;
     private readonly string _mediaFolder;
     private readonly bool _forLayout;
+
+    /// <summary>Nesting, paragraphs and objects read so far, against the package's limits.</summary>
+    private readonly DocumentBudget _budget;
 
     /// <summary>Manifest item id → zip entry (master page parts are found through it).</summary>
     private Dictionary<string, string> _items = new(StringComparer.Ordinal);
@@ -53,14 +56,15 @@ internal sealed partial class HwpxReader
     /// <summary>Elements the model cannot hold, by local name, with the number of times they were skipped.</summary>
     private readonly Dictionary<string, int> _skipped = new(StringComparer.Ordinal);
 
-    private HwpxReader(ZipArchive? zip, string mediaFolder, bool forLayout)
+    private HwpxReader(DocumentPackage? package, string mediaFolder, bool forLayout)
     {
-        _zip = zip;
+        _package = package;
         _mediaFolder = mediaFolder;
         _forLayout = forLayout;
+        _budget = new DocumentBudget(package?.Limits ?? DocumentLimits.Default);
     }
 
-    private ZipArchive Zip => _zip ?? throw new InvalidOperationException("This reader only has a header.");
+    private DocumentPackage Package => _package ?? throw new InvalidOperationException("This reader only has a header.");
 
     // ───────────────────────── Entry points ─────────────────────────
 
@@ -69,14 +73,18 @@ internal sealed partial class HwpxReader
 
     /// <param name="skipped">Receives the elements that were skipped because the model has no equivalent (local name → count).</param>
     public static HDocument Read(string path, string mediaFolder, IDictionary<string, int>? skipped) =>
-        ReadPackage(path, mediaFolder, skipped, forLayout: false);
+        ReadPackage(path, mediaFolder, skipped, forLayout: false, DocumentLimits.Default);
+
+    /// <summary>Reads within other <paramref name="limits"/> than <see cref="DocumentLimits.Default"/> (for tests).</summary>
+    internal static HDocument Read(string path, string mediaFolder, IDictionary<string, int>? skipped, DocumentLimits limits) =>
+        ReadPackage(path, mediaFolder, skipped, forLayout: false, limits);
 
     /// <summary>
     /// Reads <paramref name="path"/> for the layout engine: like <see cref="Read(string, string, IDictionary{string, int}?)"/>,
     /// plus what only a renderer uses (runs apart by layout detail, polygons / curves / arcs, master pages).
     /// </summary>
-    public static HDocument ReadForLayout(string path, string mediaFolder, IDictionary<string, int>? skipped = null) =>
-        ReadPackage(path, mediaFolder, skipped, forLayout: true);
+    public static HDocument ReadForLayout(string path, string mediaFolder, IDictionary<string, int>? skipped = null, DocumentLimits? limits = null) =>
+        ReadPackage(path, mediaFolder, skipped, forLayout: true, limits ?? DocumentLimits.Default);
 
     /// <summary>A reader of header.xml alone, for its character and paragraph shapes (see <see cref="StyleResolver"/>).</summary>
     internal static HwpxReader ForHeader(XElement head)
@@ -86,21 +94,11 @@ internal sealed partial class HwpxReader
         return reader;
     }
 
-    private static HDocument ReadPackage(string path, string mediaFolder, IDictionary<string, int>? skipped, bool forLayout)
+    private static HDocument ReadPackage(string path, string mediaFolder, IDictionary<string, int>? skipped, bool forLayout, DocumentLimits limits)
     {
-        ZipArchive zip;
-        try
+        using (var package = DocumentPackage.Open(path, limits, () => NotAPackage(path)))
         {
-            zip = ZipFile.OpenRead(path);
-        }
-        catch (InvalidDataException)
-        {
-            throw NotAPackage(path);
-        }
-
-        using (zip)
-        {
-            var reader = new HwpxReader(zip, mediaFolder, forLayout);
+            var reader = new HwpxReader(package, mediaFolder, forLayout);
             var document = reader.ReadDocument();
             if (skipped is not null)
             {
@@ -200,7 +198,7 @@ internal sealed partial class HwpxReader
         if (result.Count > 0)
             return result;
 
-        return Zip.Entries
+        return Package.Entries
             .Where(e => e.FullName.StartsWith("Contents/", StringComparison.OrdinalIgnoreCase) && IsSection(e.FullName))
             .OrderBy(e => int.TryParse(Path.GetFileNameWithoutExtension(e.Name).AsSpan(7), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : int.MaxValue)
             .Select(e => e.FullName)
@@ -210,14 +208,14 @@ internal sealed partial class HwpxReader
     private string? EntryPath(string href, string folder)
     {
         var path = Uri.UnescapeDataString(href).Replace('\\', '/').TrimStart('/');
-        if (Zip.GetEntry(path) is not null)
+        if (Package.GetEntry(path) is not null)
             return path;
-        return folder.Length > 0 && Zip.GetEntry(folder + path) is not null ? folder + path : path;
+        return folder.Length > 0 && Package.GetEntry(folder + path) is not null ? folder + path : path;
     }
 
     private XDocument? LoadXml(string path, bool required)
     {
-        var entry = Zip.GetEntry(path);
+        var entry = Package.GetEntry(path);
         if (entry is null)
         {
             return required
@@ -226,9 +224,8 @@ internal sealed partial class HwpxReader
         }
         try
         {
-            using var stream = entry.Open();
             // Whitespace matters: <hp:t> </hp:t> is a real space.
-            return XDocument.Load(stream, LoadOptions.PreserveWhitespace);
+            return Package.LoadXml(entry, preserveWhitespace: true);
         }
         catch (XmlException ex)
         {
@@ -247,16 +244,15 @@ internal sealed partial class HwpxReader
 
         // Without a manifest entry, 한글's naming (BinData/<id>.<ext>) still finds the file.
         var entryPath = _binaryItems.GetValueOrDefault(itemId)
-                        ?? Zip.Entries.FirstOrDefault(e => e.FullName.StartsWith("BinData/", StringComparison.OrdinalIgnoreCase) &&
+                        ?? Package.Entries.FirstOrDefault(e => e.FullName.StartsWith("BinData/", StringComparison.OrdinalIgnoreCase) &&
                                                             string.Equals(Path.GetFileNameWithoutExtension(e.Name), itemId, StringComparison.OrdinalIgnoreCase))?.FullName;
         string? path = null;
-        if (entryPath is not null && Zip.GetEntry(entryPath) is { } entry)
+        if (entryPath is not null && Package.GetEntry(entryPath) is { } entry)
         {
             Directory.CreateDirectory(_mediaFolder);
-            path = Path.Combine(_mediaFolder, $"hwpx-media-{_media.Count + 1}{Path.GetExtension(entry.Name).ToLowerInvariant()}");
-            using var source = entry.Open();
-            using var target = File.Create(path);
-            source.CopyTo(target);
+            path = Path.Combine(_mediaFolder, $"hwpx-media-{_media.Count + 1}{DocumentPackage.SafeExtension(entry.Name)}");
+            if (!Package.ExtractPicture(entry, path))
+                path = null; // larger than any picture should be: left out
         }
         _media[itemId] = path;
         return path;

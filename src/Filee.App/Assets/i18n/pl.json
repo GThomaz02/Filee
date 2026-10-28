@@ -136,6 +136,7 @@
   "error.fon_unsupported": "Ten rodzaj czcionki .fon nie jest obsługiwany",
   "error.fon_too_large": "Czcionka .fon jest zbyt duża, aby ją przekonwertować",
   "error.fon_damaged": "Plik .fon jest uszkodzony lub niekompletny",
+  "error.document_too_complex": "Dokument jest zbyt duży lub zbyt złożony, aby bezpiecznie go odczytać",
   "error.m4s_needs_init": "Ten plik .m4s to fragment wideo strumieniowego i nie da się go odczytać bez osobnego segmentu początkowego (init)",
   "notice.pdf_not_smaller": "Nie udało się zmniejszyć pliku, więc skopiowano go bez zmian",
   "notice.cad_newer_left_out": "Pominięto obiekty, których wybrana wersja AutoCAD nie ma (multiodnośniki, siatki…)",

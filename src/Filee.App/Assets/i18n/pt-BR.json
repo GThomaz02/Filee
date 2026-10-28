@@ -136,6 +136,7 @@
   "error.fon_unsupported": "Este tipo de fonte .fon não é compatível",
   "error.fon_too_large": "A fonte .fon é grande demais para converter",
   "error.fon_damaged": "O arquivo .fon está danificado ou incompleto",
+  "error.document_too_complex": "O documento é grande ou complexo demais para ser lido com segurança",
   "error.m4s_needs_init": "Este .m4s é um pedaço de um vídeo transmitido por streaming e não pode ser lido sem o seu segmento inicial (init) separado",
   "notice.pdf_not_smaller": "Não deu para deixar menor, então foi copiado como está",
   "notice.cad_newer_left_out": "Objetos que a versão do AutoCAD escolhida não tem (multilinhas de chamada, malhas…) ficaram de fora",

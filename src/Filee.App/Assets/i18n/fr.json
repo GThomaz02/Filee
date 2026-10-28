@@ -136,6 +136,7 @@
   "error.fon_unsupported": "Ce type de police .fon n'est pas pris en charge",
   "error.fon_too_large": "La police .fon est trop grande pour être convertie",
   "error.fon_damaged": "Le fichier .fon est endommagé ou incomplet",
+  "error.document_too_complex": "Le document est trop volumineux ou trop complexe pour être lu en toute sécurité",
   "error.m4s_needs_init": "Ce .m4s est un morceau d'une vidéo diffusée en streaming : il ne peut pas être lu sans son segment de départ (init) séparé",
   "notice.pdf_not_smaller": "Impossible de réduire sa taille : le fichier a été copié tel quel",
   "notice.cad_newer_left_out": "Des objets que la version d'AutoCAD choisie n'a pas (multilignes de repère, maillages…) ont été omis",

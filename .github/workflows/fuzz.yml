@@ -1,0 +1,58 @@
+# Nightly mutation fuzzing of the document readers (tests/Filee.Engines.Tests/DocumentFuzzTests.cs): each reader gets a
+# few minutes of inputs changed from seeds written in code, with a new random seed every night. Pull requests run the
+# same tests briefly with a fixed seed as part of the normal test run; this job only adds the long run. A failure
+# names the seed (FILEE_FUZZ_SEED repeats it) and uploads the inputs that failed.
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "17 18 * * *" # 03:17 in Korea
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per reader
+        default: "180"
+      seed:
+        description: Seed to repeat (empty for a new one)
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build tests/Filee.Engines.Tests/Filee.Engines.Tests.csproj -c Release
+
+      - name: Fuzz the document readers
+        env:
+          FILEE_FUZZ_SECONDS: ${{ inputs.seconds || '180' }}
+          FILEE_FUZZ_SEED: ${{ inputs.seed }}
+          FILEE_FUZZ_OUT: ${{ runner.temp }}/fuzz-failures
+        run: |
+          mkdir -p "$FILEE_FUZZ_OUT"
+          dotnet test tests/Filee.Engines.Tests/Filee.Engines.Tests.csproj --no-build -c Release --filter "Category=Fuzz" \
+            --blame-crash --results-directory TestResults --logger "console;verbosity=detailed"
+
+      - name: Upload the inputs that failed
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-failures
+          path: |
+            ${{ runner.temp }}/fuzz-failures/
+            TestResults/
+          if-no-files-found: ignore

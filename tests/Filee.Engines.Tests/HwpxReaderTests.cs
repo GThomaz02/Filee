@@ -636,7 +636,7 @@ public class HwpxReaderTests(EngineFixture fx) : IClassFixture<EngineFixture>
     /// one missing), a group, equation, compose, ruby text, notes, a chart with an OLE fallback, and in the second
     /// section other namespace prefixes.
     /// </summary>
-    private static string HangulStylePackage(string folder)
+    internal static string HangulStylePackage(string folder)
     {
         const string Namespaces =
             "xmlns:ha=\"http://www.hancom.co.kr/hwpml/2011/app\" xmlns:hp=\"http://www.hancom.co.kr/hwpml/2011/paragraph\" " +

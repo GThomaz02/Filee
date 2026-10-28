@@ -11,6 +11,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
+using Filee.Engines.Infrastructure;
 
 namespace Filee.Engines.Geo;
 
@@ -409,67 +410,15 @@ internal static class GeoXml
 
     /// <summary>
     /// Parses XML without DTDs or external entities, so a hostile file can't read files or expand into gigabytes, and
-    /// refuses elements nested more than <see cref="MaxElementDepth"/> levels. The tree is built here from the reader
-    /// rather than by <c>XDocument.Load</c>, which takes time quadratic in the depth (a 1.4 MB file nested 100,000 deep
-    /// kept it busy for 48 seconds, the reader alone needs a quarter of a second) and so couldn't be allowed to see such
-    /// a file. Namespace declarations and prefixes are not kept; names are the local name and namespace.
+    /// refuses elements nested more than <see cref="MaxElementDepth"/> levels (see <see cref="SafeXml"/>). Namespace
+    /// declarations and prefixes are not kept; names are the local name and namespace.
     /// </summary>
     public static XDocument Load(Stream stream, int maxElements = MaxElements)
     {
-        var settings = new XmlReaderSettings
-        {
-            DtdProcessing = DtdProcessing.Prohibit,
-            XmlResolver = null,
-            MaxCharactersFromEntities = 0,
-            CheckCharacters = false,
-            // About 1 GB of memory at the most: the tree takes some 16 bytes for every character.
-            MaxCharactersInDocument = 1L << 26,
-        };
         try
         {
-            using var reader = XmlReader.Create(stream, settings);
-            var document = new XDocument();
-            XContainer current = document;
-            var depth = 0;
-            var elements = 0;
-            while (reader.Read())
-            {
-                switch (reader.NodeType)
-                {
-                    case XmlNodeType.Element:
-                        if (++depth > MaxElementDepth)
-                            throw new InvalidDataException($"The file nests elements more than {MaxElementDepth} levels deep.");
-                        if (++elements > maxElements)
-                            throw new InvalidDataException("The file has more than " + maxElements.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " elements.");
-                        var element = new XElement(XName.Get(reader.LocalName, reader.NamespaceURI));
-                        var empty = reader.IsEmptyElement;
-                        if (reader.HasAttributes)
-                        {
-                            while (reader.MoveToNextAttribute())
-                            {
-                                if (reader.NamespaceURI != "http://www.w3.org/2000/xmlns/")
-                                    element.SetAttributeValue(XName.Get(reader.LocalName, reader.NamespaceURI), reader.Value);
-                            }
-                            reader.MoveToElement();
-                        }
-                        current.Add(element);
-                        if (empty)
-                            depth--;
-                        else
-                            current = element;
-                        break;
-                    case XmlNodeType.EndElement:
-                        current = current.Parent ?? (XContainer)document;
-                        depth--;
-                        break;
-                    case XmlNodeType.Text or XmlNodeType.CDATA or XmlNodeType.SignificantWhitespace or XmlNodeType.Whitespace:
-                        // Text outside the root element (white space between declarations) is no content.
-                        if (current is XElement)
-                            current.Add(new XText(reader.Value));
-                        break;
-                }
-            }
-            return document;
+            // About 1 GB of memory at the most: the tree takes some 16 bytes for every character.
+            return SafeXml.Load(stream, new XmlLimits(MaxElementDepth, maxElements, 1L << 26, KeepNamespaceDeclarations: false, CheckCharacters: false));
         }
         catch (XmlException ex)
         {

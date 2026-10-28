@@ -136,6 +136,7 @@
   "error.fon_unsupported": "지원하지 않는 종류의 .fon 글꼴이에요",
   "error.fon_too_large": ".fon 글꼴이 너무 커서 변환할 수 없어요",
   "error.fon_damaged": ".fon 파일이 손상되었거나 잘렸어요",
+  "error.document_too_complex": "문서가 너무 크거나 복잡해서 안전하게 읽을 수 없어요",
   "error.m4s_needs_init": "스트리밍 동영상의 한 조각인 .m4s 파일이에요. 따로 있는 시작(init) 세그먼트 없이는 읽을 수 없어요",
   "notice.pdf_not_smaller": "더 작게 만들 수 없어서 그대로 복사했어요",
   "notice.cad_newer_left_out": "선택한 AutoCAD 버전에 없는 개체(다중 지시선, 메시 …)는 빼고 저장했어요",

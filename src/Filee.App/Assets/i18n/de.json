@@ -130,6 +130,7 @@
   "error.fon_unsupported": "Diese Art von .fon-Schrift wird nicht unterstützt",
   "error.fon_too_large": "Die .fon-Schrift ist zu groß zum Konvertieren",
   "error.fon_damaged": "Die .fon-Datei ist beschädigt oder unvollständig",
+  "error.document_too_complex": "Das Dokument ist zu groß oder zu komplex, um es sicher zu lesen",
   "error.m4s_needs_init": "Diese .m4s-Datei ist ein Stück eines gestreamten Videos und lässt sich ohne ihr separates Startsegment (init) nicht lesen",
   "notice.pdf_not_smaller": "Die Datei ließ sich nicht verkleinern und wurde unverändert kopiert",
   "notice.cad_newer_left_out": "Objekte, die die gewählte AutoCAD-Version nicht unterstützt (Multiführungslinien, Netze …), wurden weggelassen",

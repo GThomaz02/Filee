@@ -136,6 +136,7 @@
   "error.fon_unsupported": "不支持此类 .fon 字体",
   "error.fon_too_large": ".fon 字体太大，无法转换",
   "error.fon_damaged": ".fon 文件已损坏或不完整",
+  "error.document_too_complex": "文档过大或过于复杂，无法安全读取",
   "error.m4s_needs_init": "此 .m4s 是流媒体视频的一个片段，没有单独的起始（init）分段就无法读取",
   "notice.pdf_not_smaller": "无法再缩小，已原样复制",
   "notice.cad_newer_left_out": "已省略所选 AutoCAD 版本没有的对象（多重引线、网格……）",

@@ -294,8 +294,10 @@ internal sealed partial class DocxReader
         var root = part?.Xml.Root;
         if (root is null)
             return;
-        var abstracts = root.Elements(W + "abstractNum")
-            .ToDictionary(a => Attr(a, "abstractNumId") ?? "", a => a);
+        // Of two definitions with one id (a damaged file) the first counts.
+        var abstracts = new Dictionary<string, XElement>();
+        foreach (var abstractNum in root.Elements(W + "abstractNum"))
+            abstracts.TryAdd(Attr(abstractNum, "abstractNumId") ?? "", abstractNum);
         foreach (var num in root.Elements(W + "num"))
         {
             var numId = Attr(num, "numId") ?? "";
@@ -335,7 +337,11 @@ internal sealed partial class DocxReader
     // ───────────────────────── Resolution ─────────────────────────
 
     /// <summary>Merged properties of a paragraph or character style including everything it is based on.</summary>
-    private (ParaProps Para, RunProps Run) ResolveStyle(string? styleId)
+    private (ParaProps Para, RunProps Run) ResolveStyle(string? styleId) => ResolveStyle(styleId, 0);
+
+    /// <param name="depth">Styles below this one in the chain: a chain longer than <see cref="MaxStyleChain"/> (a
+    /// damaged or hostile file; real chains are a few long) starts from the defaults instead of overflowing the stack.</param>
+    private (ParaProps Para, RunProps Run) ResolveStyle(string? styleId, int depth)
     {
         if (styleId is null || !_styles.TryGetValue(styleId, out var style))
             return (_defaultPara.Clone(), _defaultRun.Clone());
@@ -344,7 +350,9 @@ internal sealed partial class DocxReader
 
         // Guard against basedOn cycles in damaged files.
         _resolvedStyles[styleId] = (_defaultPara.Clone(), _defaultRun.Clone());
-        var (para, run) = style.BasedOn is { } parent && parent != styleId ? ResolveStyle(parent) : (_defaultPara.Clone(), _defaultRun.Clone());
+        var (para, run) = style.BasedOn is { } parent && parent != styleId && depth < MaxStyleChain
+            ? ResolveStyle(parent, depth + 1)
+            : (_defaultPara.Clone(), _defaultRun.Clone());
         para.Apply(style.PPr);
         run.Apply(style.RPr);
         _resolvedStyles[styleId] = (para.Clone(), run.Clone());
@@ -387,7 +395,7 @@ internal sealed partial class DocxReader
         {
             // Character styles only carry run properties; apply their chain on top of the paragraph's.
             var chain = new List<Style>();
-            for (var current = style; current is not null && chain.Count < 20; current = current.BasedOn is { } b ? _styles.GetValueOrDefault(b) : null)
+            for (var current = style; current is not null && chain.Count < MaxStyleChain; current = current.BasedOn is { } b ? _styles.GetValueOrDefault(b) : null)
                 chain.Add(current);
             for (var i = chain.Count - 1; i >= 0; i--)
                 run.Apply(chain[i].RPr);
@@ -683,8 +691,16 @@ internal sealed partial class DocxReader
 
     private static string? Val(XElement? element) => Attr(element, "val");
 
+    /// <summary>
+    /// A length in twips (or another whole number). Values beyond ±100 million (70 km of twips; real ones stay below
+    /// 50,000) are cut there, so arithmetic on them (HWPUNIT is 5 twips, Math.Abs) can't overflow.
+    /// </summary>
     private static int? Twips(XElement? element, string name) =>
-        double.TryParse(Attr(element, name), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? (int)value : null;
+        double.TryParse(Attr(element, name), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !double.IsNaN(value)
+            ? (int)Math.Clamp(value, -MaxTwips, MaxTwips)
+            : null;
+
+    private const int MaxTwips = 100_000_000;
 
     private static long? Long(XElement? element, string name) =>
         long.TryParse(Attr(element, name), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : null;

@@ -1,69 +1,40 @@
 // The ZIP container of an OFD file, read defensively: parts are looked up by name inside the package and never
 // written out under their own names, references ("../Res/a.png", "/Doc_0/Document.xml") are resolved against the
-// package root and cannot leave it, XML is read without DTDs, and every part is read with a size limit (also checked
-// while decompressing, so a lying header does not help a zip bomb).
+// package root and cannot leave it, and the package is read within DocumentLimits (Documents/DocumentPackage): XML
+// without DTDs and with a depth limit, every part with a size limit that is also checked while decompressing, so a
+// lying header does not help a zip bomb.
 
 using System.IO.Compression;
 using System.Xml;
 using System.Xml.Linq;
+using Filee.Engines.Documents;
 
 namespace Filee.Engines.Ofd;
 
 /// <summary>An OFD package opened for reading.</summary>
 internal sealed class OfdPackage : IDisposable
 {
-    /// <summary>More parts than this are refused (real OFD files have a few per page).</summary>
-    private const int MaxEntries = 100_000;
-
-    /// <summary>Largest XML part read (a page, a resource list).</summary>
-    private const long MaxXmlBytes = 64L * 1024 * 1024;
-
     /// <summary>Largest picture taken; bigger ones are left out.</summary>
     public const long MaxPictureBytes = 32L * 1024 * 1024;
 
-    /// <summary>Everything read from one package together.</summary>
-    private const long MaxTotalBytes = 1024L * 1024 * 1024;
-
-    private static readonly XmlReaderSettings XmlSettings = new()
-    {
-        DtdProcessing = DtdProcessing.Prohibit,
-        XmlResolver = null,
-        IgnoreComments = true,
-        IgnoreProcessingInstructions = true,
-        MaxCharactersInDocument = MaxXmlBytes,
-    };
-
-    private readonly ZipArchive _zip;
+    private readonly DocumentPackage _package;
     private readonly Dictionary<string, ZipArchiveEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
-    private readonly long _maxTotal;
-    private long _read;
 
-    public OfdPackage(string path) : this(() => ZipFile.OpenRead(path), MaxTotalBytes)
+    public OfdPackage(string path) : this(limits => DocumentPackage.Open(path, limits, NotAPackage), DocumentLimits.Default)
     {
     }
 
     /// <summary>A package held in memory (the seal picture inside a signature), with its own limit on what it unpacks to.</summary>
-    public OfdPackage(byte[] bytes, long maxTotal) : this(() => new ZipArchive(new MemoryStream(bytes, writable: false), ZipArchiveMode.Read), maxTotal)
+    public OfdPackage(byte[] bytes, long maxTotal) : this(
+        limits => DocumentPackage.Open(new MemoryStream(bytes, writable: false), limits, NotAPackage),
+        DocumentLimits.Default with { MaxPackageBytes = Math.Min(maxTotal, DocumentLimits.Default.MaxPackageBytes) })
     {
     }
 
-    private OfdPackage(Func<ZipArchive> open, long maxTotal)
+    private OfdPackage(Func<DocumentLimits, DocumentPackage> open, DocumentLimits limits)
     {
-        _maxTotal = Math.Min(maxTotal, MaxTotalBytes);
-        try
-        {
-            _zip = open();
-        }
-        catch (InvalidDataException ex)
-        {
-            throw new InvalidDataException("The file is not an OFD document (it is not a ZIP package). It may be damaged.", ex);
-        }
-        if (_zip.Entries.Count > MaxEntries)
-        {
-            _zip.Dispose();
-            throw new InvalidDataException($"The OFD package has more than {MaxEntries:N0} parts; Filee does not read it.");
-        }
-        foreach (var entry in _zip.Entries)
+        _package = open(limits);
+        foreach (var entry in _package.Entries)
         {
             // Names that climb out of the package ("../x") are unreachable; of two parts with one name the first wins.
             if (!entry.FullName.EndsWith('/') && Resolve("", entry.FullName) is { } name)
@@ -71,7 +42,13 @@ internal sealed class OfdPackage : IDisposable
         }
     }
 
-    public void Dispose() => _zip.Dispose();
+    private static InvalidDataException NotAPackage() =>
+        new("The file is not an OFD document (it is not a ZIP package). It may be damaged.");
+
+    public void Dispose() => _package.Dispose();
+
+    /// <summary>The limits the package is read with.</summary>
+    public DocumentLimits Limits => _package.Limits;
 
     /// <summary>True when the package has a part of that (resolved) name.</summary>
     public bool Has(string? name) => name is not null && _entries.ContainsKey(name);
@@ -120,14 +97,11 @@ internal sealed class OfdPackage : IDisposable
     /// <summary>An XML part, or null when the package has no such part. Throws for parts that are not XML.</summary>
     public XDocument? LoadXml(string? name)
     {
-        if (name is null || !_entries.ContainsKey(name))
+        if (name is null || !_entries.TryGetValue(name, out var entry))
             return null;
-        var bytes = Read(name, MaxXmlBytes)
-                    ?? throw new InvalidDataException($"The OFD part {name} is larger than {MaxXmlBytes / (1024 * 1024)} MB; Filee does not read it.");
         try
         {
-            using var reader = XmlReader.Create(new MemoryStream(bytes), XmlSettings);
-            return XDocument.Load(reader);
+            return _package.LoadXml(entry, preserveWhitespace: true);
         }
         catch (XmlException ex)
         {
@@ -136,23 +110,6 @@ internal sealed class OfdPackage : IDisposable
     }
 
     /// <summary>The bytes of a part; null when it is missing or larger than <paramref name="max"/>.</summary>
-    public byte[]? Read(string name, long max)
-    {
-        if (!_entries.TryGetValue(name, out var entry) || entry.Length > max)
-            return null;
-        using var stream = entry.Open();
-        using var copy = new MemoryStream((int)Math.Min(entry.Length, 1024 * 1024));
-        var buffer = new byte[81920];
-        int count;
-        while ((count = stream.Read(buffer)) > 0)
-        {
-            if (copy.Length + count > max)
-                return null;
-            _read += count;
-            if (_read > _maxTotal)
-                throw new InvalidDataException($"The OFD package unpacks to more than {_maxTotal / (1024 * 1024)} MB; Filee does not read it.");
-            copy.Write(buffer, 0, count);
-        }
-        return copy.ToArray();
-    }
+    public byte[]? Read(string name, long max) =>
+        _entries.TryGetValue(name, out var entry) ? _package.ReadBytes(entry, max) : null;
 }

@@ -136,6 +136,7 @@
   "error.fon_unsupported": "This kind of .fon font isn't supported",
   "error.fon_too_large": "The .fon font is too large to convert",
   "error.fon_damaged": "The .fon file is damaged or cut short",
+  "error.document_too_complex": "The document is too large or too complex to read safely",
   "error.m4s_needs_init": "This .m4s is one piece of a streamed video: it can't be read without its separate start (init) segment",
   "notice.pdf_not_smaller": "Couldn't make it smaller, so it was copied as it is",
   "notice.cad_newer_left_out": "Objects the chosen AutoCAD version doesn't have (multileaders, meshes …) were left out",

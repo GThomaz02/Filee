@@ -130,6 +130,7 @@
   "error.fon_unsupported": "この種類の.fonフォントには対応していません",
   "error.fon_too_large": ".fonフォントが大きすぎて変換できません",
   "error.fon_damaged": ".fonファイルが破損しているか、途中で切れています",
+  "error.document_too_complex": "文書が大きすぎるか複雑すぎるため、安全に読み込めません",
   "error.m4s_needs_init": "この .m4s はストリーミング動画の一部で、別にある開始（init）セグメントがないと読み込めません",
   "notice.pdf_not_smaller": "サイズを小さくできなかったため、元のままコピーしました",
   "notice.cad_newer_left_out": "選んだ AutoCAD のバージョンにないオブジェクト（マルチ引出線、メッシュ …）を省きました",
