@@ -63,11 +63,14 @@ internal sealed partial class HwpxReader
         private readonly HParaFormat _format;
         private readonly int _heading;
         private readonly HListRef? _list;
+        private readonly bool _keepLayoutRuns;
         private bool _afterTable;
 
-        public ParagraphBuilder(List<HBlock> output, List<OpenField> fields, HParaFormat format, int heading, HListRef? list)
+        /// <param name="keepLayoutRuns">Texts are joined only when their layout detail is the same too (read for layout).</param>
+        public ParagraphBuilder(List<HBlock> output, List<OpenField> fields, HParaFormat format, int heading, HListRef? list, bool keepLayoutRuns)
         {
             _output = output;
+            _keepLayoutRuns = keepLayoutRuns;
             _fields = fields;
             _format = format;
             _heading = heading;
@@ -90,7 +93,7 @@ internal sealed partial class HwpxReader
             if (text.Length == 0)
                 return;
             var sink = Sink;
-            if (sink.Count > 0 && sink[^1] is HText last && last.Format == format)
+            if (sink.Count > 0 && sink[^1] is HText last && (_keepLayoutRuns ? last.Format.SameLayout(format) : last.Format == format))
                 sink[^1] = new HText(last.Text + text, format);
             else
                 sink.Add(new HText(text, format));
@@ -149,7 +152,9 @@ internal sealed partial class HwpxReader
     {
         var shape = ParaShapeOf(Attr(p, "paraPrIDRef"));
         var (heading, list) = HeadingAndList(shape, Attr(p, "styleIDRef"));
-        var builder = new ParagraphBuilder(output, _fields, shape.Format, heading, list) { MarkFormat = CharFormat(null) };
+        var builder = new ParagraphBuilder(output, _fields, shape.Format, heading, list, _forLayout) { MarkFormat = CharFormat(null) };
+        var first = output.Count;
+        HLineLayout? lines = null;
         builder.Current.PageBreakBefore = Flag(p, "pageBreak") || shape.PageBreakBefore;
         builder.Current.ColumnBreakBefore = Flag(p, "columnBreak");
 
@@ -161,13 +166,26 @@ internal sealed partial class HwpxReader
                     Run(child, builder, section);
                     break;
                 case "linesegarray":
-                    break; // layout cache, computed again by every reader
+                    lines = LineLayout(child);
+                    break;
                 default:
                     Skip(child);
                     break;
             }
         }
         builder.Finish();
+        // The stored lines belong to the whole 한글 paragraph: they go with its first part when a table splits it.
+        if (lines is not null && output.Skip(first).OfType<HParagraph>().FirstOrDefault() is { } part)
+            part.Lines = lines;
+    }
+
+    /// <summary>The layout cache 한글 stores with a paragraph (hp:linesegarray); null when it holds no lines.</summary>
+    private HLineLayout? LineLayout(XElement array)
+    {
+        var segments = Children(array, "lineseg").Select(s => new HLineSegment(
+            Int(s, "textpos"), Int(s, "vertpos"), Int(s, "vertsize"), Int(s, "textheight"), Int(s, "baseline"), Int(s, "spacing"),
+            Int(s, "horzpos"), Int(s, "horzsize"), Int(s, "flags"))).ToList();
+        return segments.Count == 0 ? null : new HLineLayout(segments, _estimatedLines);
     }
 
     /// <summary>
@@ -472,7 +490,17 @@ internal sealed partial class HwpxReader
 
     private HTable Table(XElement tbl)
     {
-        var table = new HTable { ColumnCount = Math.Max(0, Int(tbl, "colCnt")) };
+        var table = new HTable
+        {
+            ColumnCount = Math.Max(0, Int(tbl, "colCnt")),
+            PageBreak = Attr(tbl, "pageBreak") switch
+            {
+                "NONE" => HTablePageBreak.None,
+                "TABLE" => HTablePageBreak.Table,
+                "CELL" => HTablePageBreak.Cell,
+                _ => null,
+            },
+        };
         var pos = Child(tbl, "pos");
         if (pos is not null && !Flag(pos, "treatAsChar"))
         {

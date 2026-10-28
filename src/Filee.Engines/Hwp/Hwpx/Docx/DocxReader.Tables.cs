@@ -1,5 +1,6 @@
 // DOCX tables: grid column widths, merged cells (gridSpan / vMerge), borders from the table style, the table and
-// each cell, cell shading, cell margins, vertical alignment, row heights and repeated header rows.
+// each cell, cell shading, cell margins, vertical alignment, row heights, repeated header rows and rows that do not
+// split across pages.
 
 using System.Xml.Linq;
 
@@ -55,7 +56,11 @@ internal sealed partial class DocxReader
         {
             var tr = rows[r];
             var trPr = tr.Element(W + "trPr");
-            var row = new HRow { Header = trPr?.Element(W + "tblHeader") is { } header && Val(header) is not ("0" or "false") };
+            var row = new HRow
+            {
+                Header = trPr?.Element(W + "tblHeader") is { } header && Val(header) is not ("0" or "false"),
+                CantSplit = trPr is not null && Toggle(trPr, "cantSplit") == true,
+            };
             if (trPr?.Element(W + "trHeight") is { } height && Twips(height, "val") is > 0 and var h)
                 row.Height = HwpxUnits.FromTwips(h);
 

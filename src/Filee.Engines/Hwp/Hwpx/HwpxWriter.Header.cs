@@ -53,38 +53,60 @@ internal sealed partial class HwpxWriter
                 refList.Add(numberings);
         }
 
-        var styles = _head.Descendants(Hh + "style").ToList();
-        (string, string, string) Ids(XElement style) =>
-            ((string?)style.Attribute("id") ?? _normalStyleId,
-             (string?)style.Attribute("paraPrIDRef") ?? _normalParaPrId,
-             (string?)style.Attribute("charPrIDRef") ?? _normalCharPrId);
+        var styles = FindStyles(_head);
+        (_normalStyleId, _normalParaPrId, _normalCharPrId) = styles.Normal;
+        foreach (var (level, ids) in styles.Headings)
+            _headings[level] = ids;
+        _footnoteStyle = styles.Footnote;
+    }
+
+    /// <summary>The template styles (style, paragraph shape and character shape ids) plain paragraphs, headings and footnotes are written with.</summary>
+    internal sealed record TemplateStyles(
+        (string StyleId, string ParaPrId, string CharPrId) Normal,
+        IReadOnlyDictionary<int, (string StyleId, string ParaPrId, string CharPrId)> Headings,
+        (string StyleId, string ParaPrId, string CharPrId)? Footnote);
+
+    /// <summary>
+    /// Normal (style 0, else the first), "Heading 1".."Heading 9" by English style name (else by the outline level of
+    /// their paragraph shapes) and the footnote style of a header.xml.
+    /// </summary>
+    internal static TemplateStyles FindStyles(XElement head)
+    {
+        var styles = head.Descendants(Hh + "style").ToList();
+        var normalIds = ("0", "0", "0");
+        (string, string, string) Ids(XElement style) => (
+            (string?)style.Attribute("id") ?? normalIds.Item1,
+            (string?)style.Attribute("paraPrIDRef") ?? normalIds.Item2,
+            (string?)style.Attribute("charPrIDRef") ?? normalIds.Item3);
 
         var normal = styles.FirstOrDefault(s => (string?)s.Attribute("id") == "0") ?? styles.FirstOrDefault();
         if (normal is not null)
-            (_normalStyleId, _normalParaPrId, _normalCharPrId) = Ids(normal);
+            normalIds = Ids(normal);
 
-        // "Heading 1".."Heading 9" by English style name; fall back to outline levels of paragraph properties.
+        var headings = new Dictionary<int, (string StyleId, string ParaPrId, string CharPrId)>();
+        (string StyleId, string ParaPrId, string CharPrId)? footnote = null;
         foreach (var style in styles)
         {
             var name = (string?)style.Attribute("engName") ?? "";
             if (name.StartsWith("Heading ", StringComparison.OrdinalIgnoreCase) &&
                 int.TryParse(name.AsSpan(8), out var level) && level is >= 1 and <= 9)
-                _headings[level] = Ids(style);
+                headings[level] = Ids(style);
             else if (name.Contains("footnote", StringComparison.OrdinalIgnoreCase))
-                _footnoteStyle = Ids(style);
+                footnote = Ids(style);
         }
-        if (_headings.Count == 0)
+        if (headings.Count == 0)
         {
-            foreach (var paraPr in _head.Descendants(Hh + "paraPr"))
+            foreach (var paraPr in head.Descendants(Hh + "paraPr"))
             {
                 var heading = paraPr.Element(Hh + "heading");
                 if ((string?)heading?.Attribute("type") != "OUTLINE" || !int.TryParse((string?)heading.Attribute("level"), out var outline))
                     continue;
                 var paraPrId = (string?)paraPr.Attribute("id") ?? "0";
                 if (styles.FirstOrDefault(s => (string?)s.Attribute("paraPrIDRef") == paraPrId) is { } style)
-                    _headings.TryAdd(outline + 1, Ids(style));
+                    headings.TryAdd(outline + 1, Ids(style));
             }
         }
+        return new TemplateStyles(normalIds, headings, footnote);
     }
 
     private string SerializeHeader(int sectionCount)

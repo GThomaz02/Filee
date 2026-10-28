@@ -342,7 +342,13 @@ nested `<svg>`, CSS and text are resolved the same way.
 ## HWPX writer
 
 Filee writes OWPML (HWPX) itself, so saving as HWPX needs no Hancom Office and shows no approval dialog.
-Readers turn the source into a small document model (`Hwp/Hwpx/HwpxModel.cs`) and `HwpxWriter` writes the package:
+Readers turn the source into a small document model (`Hwp/Hwpx/HwpxModel.cs`) and `HwpxWriter` writes the package.
+The model also keeps what a renderer needs and the writers ignore (`Hwp/Hwpx/HwpxModel.Layout.cs`): line rules with
+the source's meaning (Word's multiple and document grid, 한글's "between lines"), 한글's seven language slots and Word's
+four run fonts, paragraph borders and line breaking, stored line layouts, crops, rotation, z-order, master pages,
+polygons, curves and arcs (`HwpxReader.ReadForLayout` also keeps runs apart by that detail and reads master pages and
+those shapes, which `Read` leaves out as before). `StyleResolver` turns what a document leaves to the
+한글 style into concrete values. What the readers take over:
 
 - **DOCX** is read directly (`Hwp/Hwpx/Docx/DocxReader*.cs`) so the layout survives:
   - page size, orientation and margins per section; columns, also when they change mid-page;

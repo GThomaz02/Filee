@@ -97,11 +97,34 @@ internal sealed partial class HwpxReader
             EastAsianFont: Face("HANGUL"),
             Color: Color(Attr(charPr, "textColor")) ?? "#000000",
             Shade: Color(Attr(charPr, "shadeColor")),
-            Spacing: Int(Child(charPr, "spacing"), "hangul"));
+            Spacing: Int(Child(charPr, "spacing"), "hangul"),
+            Layout: new HCharLayout(Slots(charPr, Face)));
         return _charFormats[id] = format;
     }
 
+    /// <summary>The seven language slots of a character shape: font, 장평, 자간, 상대 크기 and 글자 위치 each.</summary>
+    private static HLanguageSlots Slots(XElement charPr, Func<string, string?> face)
+    {
+        var (ratio, spacing, relSz, offset) = (Child(charPr, "ratio"), Child(charPr, "spacing"), Child(charPr, "relSz"), Child(charPr, "offset"));
+        var slots = HLanguageSlots.All(default);
+        foreach (var language in HLanguageSlots.Languages)
+        {
+            var name = language.ToString().ToUpperInvariant();
+            var attribute = name.ToLowerInvariant();
+            slots = slots.With(language, new HSlotFormat(
+                face(name),
+                Int(ratio, attribute, 100), Int(spacing, attribute), Int(relSz, attribute, 100), Int(offset, attribute)));
+        }
+        return slots;
+    }
+
+    /// <summary>The complete character format of a charPr id (for <see cref="StyleResolver"/>).</summary>
+    internal HCharFormat CharacterShape(string id) => CharFormat(id);
+
     // ───────────────────────── Paragraph shapes ─────────────────────────
+
+    /// <summary>The complete paragraph format of a paraPr id (for <see cref="StyleResolver"/>).</summary>
+    internal HParaFormat ParagraphShape(string id) => ParaShapeOf(id).Format;
 
     private ParaShape ParaShapeOf(string? id)
     {
@@ -114,7 +137,7 @@ internal sealed partial class HwpxReader
 
         var heading = Child(paraPr, "heading");
         var breaks = Child(paraPr, "breakSetting");
-        var (intent, left, right, before, after, lineSpacing) = Spacing(paraPr);
+        var (intent, left, right, before, after, lineSpacing, lineHeight) = Spacing(paraPr);
         var format = new HParaFormat(
             Align: Attr(Child(paraPr, "align"), "horizontal") switch
             {
@@ -135,13 +158,46 @@ internal sealed partial class HwpxReader
             KeepWithNext: Flag(breaks, "keepWithNext"),
             KeepLines: Flag(breaks, "keepLines"),
             WidowOrphan: Flag(breaks, "widowOrphan"),
-            Tabs: TabStops(Attr(paraPr, "tabPrIDRef")));
+            Tabs: TabStops(Attr(paraPr, "tabPrIDRef")),
+            Layout: ParaLayout(paraPr, breaks, lineHeight));
         var shape = new ParaShape(format, Attr(heading, "type") ?? "NONE", Attr(heading, "idRef"), Math.Max(0, Int(heading, "level")), Flag(breaks, "pageBreakBefore"));
         return _paraShapes[id] = shape;
     }
 
+    /// <summary>Line rule, border, line breaking and grid settings of a paragraph shape.</summary>
+    private HParaLayout ParaLayout(XElement paraPr, XElement? breaks, HLineHeight lineHeight)
+    {
+        var autoSpacing = Child(paraPr, "autoSpacing");
+        var breaking = new HLineBreaking(
+            Latin: Attr(breaks, "breakLatinWord") switch
+            {
+                "HYPHENATION" => HLatinBreak.Hyphenation,
+                "BREAK_WORD" => HLatinBreak.BreakWord,
+                _ => HLatinBreak.KeepWord,
+            },
+            NonLatin: Attr(breaks, "breakNonLatinWord") == "BREAK_WORD" ? HNonLatinBreak.BreakWord : HNonLatinBreak.KeepWord,
+            LineWrap: Attr(breaks, "lineWrap") switch
+            {
+                "SQUEEZE" => HLineWrap.Squeeze,
+                "KEEP" => HLineWrap.Keep,
+                _ => HLineWrap.Break,
+            },
+            AutoSpaceLatin: Flag(autoSpacing, "eAsianEng"),
+            AutoSpaceDigits: Flag(autoSpacing, "eAsianNum"),
+            Condense: Int(paraPr, "condense"));
+
+        var border = HParaBorder.None;
+        if (Child(paraPr, "border") is { } element && BorderFill(Attr(element, "borderFillIDRef")) is (var borders, var fill))
+        {
+            border = new HParaBorder(borders, fill,
+                new HInsets(Int(element, "offsetLeft"), Int(element, "offsetRight"), Int(element, "offsetTop"), Int(element, "offsetBottom")),
+                Connect: Flag(element, "connect"), IgnoreMargin: Flag(element, "ignoreMargin"));
+        }
+        return new HParaLayout(lineHeight, border, breaking, SnapToGrid: Flag(paraPr, "snapToGrid", true), FontLineHeight: Flag(paraPr, "fontLineHeight"));
+    }
+
     /// <summary>Margins and line spacing from the switch branch with exact values, else the doubled ones halved.</summary>
-    private static (int Intent, int Left, int Right, int Before, int After, HLineSpacing LineSpacing) Spacing(XElement paraPr)
+    private static (int Intent, int Left, int Right, int Before, int After, HLineSpacing LineSpacing, HLineHeight LineHeight) Spacing(XElement paraPr)
     {
         XElement? margin = null, line = null;
         bool marginExact = false, lineExact = false;
@@ -186,7 +242,14 @@ internal sealed partial class HwpxReader
             "BETWEEN_LINES" or "SPACE_ONLY" or "SPACEONLY" => new HLineSpacing(HLineSpacingKind.AtLeast, 1000 + length),
             _ => new HLineSpacing(HLineSpacingKind.Percent, value),
         };
-        return (Length("intent", "indent"), Length("left", "left"), Length("right", "right"), Length("prev", "prev"), Length("next", "next"), lineSpacing);
+        var lineHeight = type switch
+        {
+            "FIXED" => new HLineHeight(HLineHeightRule.Exact, length),
+            "AT_LEAST" or "MINIMUM" => new HLineHeight(HLineHeightRule.AtLeast, length),
+            "BETWEEN_LINES" or "SPACE_ONLY" or "SPACEONLY" => new HLineHeight(HLineHeightRule.BetweenLines, length),
+            _ => new HLineHeight(HLineHeightRule.Percent, value),
+        };
+        return (Length("intent", "indent"), Length("left", "left"), Length("right", "right"), Length("prev", "prev"), Length("next", "next"), lineSpacing, lineHeight);
     }
 
     // ───────────────────────── Tab stops ─────────────────────────

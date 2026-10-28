@@ -35,10 +35,20 @@ internal sealed partial class DocxReader
         public int? Ilvl;
         public List<(int Position, string Kind, string Leader)> Tabs = [];
 
+        /// <summary>Paragraph border edges (w:pBdr: top, left, bottom, right, between) with their distance to the text in points.</summary>
+        public Dictionary<string, (HBorder Border, int Space)> Borders = [];
+
+        /// <summary>Paragraph background (w:shd); null = none.</summary>
+        public string? Shading;
+
+        /// <summary>East Asian typography switches (w:kinsoku, w:wordWrap, w:overflowPunct, w:topLinePunct, w:autoSpaceDE / DN).</summary>
+        public bool? Kinsoku, WordWrap, OverflowPunct, TopLinePunct, AutoSpaceDE, AutoSpaceDN;
+
         public ParaProps Clone()
         {
             var copy = (ParaProps)MemberwiseClone();
             copy.Tabs = [.. Tabs];
+            copy.Borders = new Dictionary<string, (HBorder, int)>(Borders);
             return copy;
         }
 
@@ -86,6 +96,24 @@ internal sealed partial class DocxReader
             PageBreakBefore = Toggle(pPr, "pageBreakBefore") ?? PageBreakBefore;
             WidowControl = Toggle(pPr, "widowControl") ?? WidowControl;
             SnapToGrid = Toggle(pPr, "snapToGrid") ?? SnapToGrid;
+            Kinsoku = Toggle(pPr, "kinsoku") ?? Kinsoku;
+            WordWrap = Toggle(pPr, "wordWrap") ?? WordWrap;
+            OverflowPunct = Toggle(pPr, "overflowPunct") ?? OverflowPunct;
+            TopLinePunct = Toggle(pPr, "topLinePunct") ?? TopLinePunct;
+            AutoSpaceDE = Toggle(pPr, "autoSpaceDE") ?? AutoSpaceDE;
+            AutoSpaceDN = Toggle(pPr, "autoSpaceDN") ?? AutoSpaceDN;
+            foreach (var edge in pPr.Element(W + "pBdr")?.Elements() ?? [])
+            {
+                var side = edge.Name.LocalName switch
+                {
+                    "start" => "left",
+                    "end" => "right",
+                    var other => other,
+                };
+                Borders[side] = (Border(edge), Twips(edge, "space") ?? 0);
+            }
+            if (pPr.Element(W + "shd") is { } shd)
+                Shading = ShadingColor(shd);
             if (pPr.Element(W + "outlineLvl") is { } outline && int.TryParse(Val(outline), out var level))
                 OutlineLevel = level;
             if (pPr.Element(W + "numPr") is { } numPr)
@@ -116,6 +144,12 @@ internal sealed partial class DocxReader
         public string? VertAlign, Color, Highlight, Shade, Ascii, EastAsia, AsciiTheme, EastAsiaTheme;
         public int? Size, Spacing;
 
+        /// <summary>The four Word fonts one by one (Ascii above falls back to hAnsi for the writers) and the hint.</summary>
+        public string? AsciiOnly, AsciiOnlyTheme, HighAnsi, HighAnsiTheme, ComplexScript, ComplexScriptTheme, Hint;
+
+        /// <summary>w:w (percent) and w:position (half points).</summary>
+        public int? Scale, Position;
+
         public RunProps Clone() => (RunProps)MemberwiseClone();
 
         public void Apply(XElement? rPr)
@@ -140,8 +174,26 @@ internal sealed partial class DocxReader
                 Size = halfPoints;
             if (rPr.Element(W + "spacing") is { } spacing && int.TryParse(Val(spacing), out var twips))
                 Spacing = twips;
+            if (rPr.Element(W + "w") is { } scale && int.TryParse(Val(scale), out var percent))
+                Scale = percent;
+            if (rPr.Element(W + "position") is { } position && int.TryParse(Val(position), out var shift))
+                Position = shift;
             if (rPr.Element(W + "rFonts") is { } fonts)
             {
+                if (Attr(fonts, "ascii") is { } asciiOnly)
+                    (AsciiOnly, AsciiOnlyTheme) = (asciiOnly, null);
+                if (Attr(fonts, "asciiTheme") is { } asciiOnlyTheme)
+                    AsciiOnlyTheme = asciiOnlyTheme;
+                if (Attr(fonts, "hAnsi") is { } highAnsi)
+                    (HighAnsi, HighAnsiTheme) = (highAnsi, null);
+                if (Attr(fonts, "hAnsiTheme") is { } highAnsiTheme)
+                    HighAnsiTheme = highAnsiTheme;
+                if (Attr(fonts, "cs") is { } complex)
+                    (ComplexScript, ComplexScriptTheme) = (complex, null);
+                if (Attr(fonts, "cstheme") is { } complexTheme)
+                    ComplexScriptTheme = complexTheme;
+                Hint = Attr(fonts, "hint") ?? Hint;
+
                 // A theme reference wins over an explicit name in Word, so a later explicit name clears it.
                 if ((Attr(fonts, "ascii") ?? Attr(fonts, "hAnsi")) is { } ascii)
                     (Ascii, AsciiTheme) = (ascii, null);
@@ -183,6 +235,7 @@ internal sealed partial class DocxReader
     private string? _defaultParagraphStyle;
     private string? _defaultTableStyle;
     private (string? Latin, string? EastAsian) _minorFont, _majorFont;
+    private string? _minorComplexFont, _majorComplexFont;
 
     private void LoadStyles(Part? part)
     {
@@ -232,6 +285,8 @@ internal sealed partial class DocxReader
         }
         _minorFont = Read("minorFont");
         _majorFont = Read("majorFont");
+        _minorComplexFont = NullIfEmpty(Attr(fonts?.Element(A + "minorFont")?.Element(A + "cs"), "typeface"));
+        _majorComplexFont = NullIfEmpty(Attr(fonts?.Element(A + "majorFont")?.Element(A + "cs"), "typeface"));
     }
 
     private void LoadNumbering(Part? part)
@@ -401,7 +456,44 @@ internal sealed partial class DocxReader
                     "underscore" or "heavy" => "SOLID",
                     _ => "NONE",
                 }))
-                .ToList());
+                .ToList(),
+            Layout: ParaLayout(p));
+    }
+
+    /// <summary>
+    /// The paragraph's rendering detail in Word's terms: the line rule as Word means it (see #280; LineSpacing above
+    /// holds its 한글 approximation), borders and shading, and the East Asian line breaking switches with Word's defaults.
+    /// </summary>
+    private static HParaLayout ParaLayout(ParaProps p)
+    {
+        var lineHeight = p.LineRule switch
+        {
+            "exact" when p.Line is { } exact => new HLineHeight(HLineHeightRule.Exact, HwpxUnits.FromTwips(exact)),
+            "atLeast" when p.Line is { } atLeast => new HLineHeight(HLineHeightRule.AtLeast, HwpxUnits.FromTwips(atLeast)),
+            _ => new HLineHeight(HLineHeightRule.Multiple, p.Line ?? 240),
+        };
+
+        var border = HParaBorder.None;
+        if (p.Borders.Count > 0 || p.Shading is not null)
+        {
+            (HBorder Border, int Space) Edge(string side) => p.Borders.GetValueOrDefault(side, (HBorder.None, 0));
+            // w:space is in points; Word joins consecutive paragraphs with the same borders into one box.
+            border = new HParaBorder(
+                new HBorders(Edge("left").Border, Edge("right").Border, Edge("top").Border, Edge("bottom").Border),
+                p.Shading,
+                new HInsets(Edge("left").Space * 100, Edge("right").Space * 100, Edge("top").Space * 100, Edge("bottom").Space * 100),
+                Connect: true,
+                Between: p.Borders.TryGetValue("between", out var between) && between.Border.Style != HBorderStyle.None ? between.Border : null);
+        }
+
+        var breaking = new HLineBreaking(
+            Latin: p.WordWrap == false ? HLatinBreak.BreakWord : HLatinBreak.KeepWord,
+            Kinsoku: p.Kinsoku ?? true,
+            OverflowPunctuation: p.OverflowPunct ?? true,
+            CompressPunctuation: p.TopLinePunct ?? false,
+            AutoSpaceLatin: p.AutoSpaceDE ?? true,
+            AutoSpaceDigits: p.AutoSpaceDN ?? true);
+        return new HParaLayout(lineHeight, border, breaking, SnapToGrid: p.SnapToGrid ?? true);
     }
 
     private HCharFormat CharFormat(RunProps r)
@@ -421,7 +513,27 @@ internal sealed partial class DocxReader
             Color: r.Color ?? "#000000",
             Shade: r.Highlight ?? r.Shade,
             // Word letter spacing is absolute (twips); 한글's is a percentage of the font size.
-            Spacing: r.Spacing is { } twips and not 0 ? Math.Clamp((int)Math.Round(twips * 10.0 / size), -50, 50) : 0);
+            Spacing: r.Spacing is { } twips and not 0 ? Math.Clamp((int)Math.Round(twips * 10.0 / size), -50, 50) : 0,
+            // The exact values for layout: the four fonts, scale, spacing and position as Word means them.
+            Layout: new HCharLayout(
+                WordFonts: WordFonts(r),
+                Scale: r.Scale ?? 100,
+                LetterSpacing: HwpxUnits.FromTwips(r.Spacing ?? 0),
+                Position: (r.Position ?? 0) * 50));
+    }
+
+    /// <summary>Word's four run fonts, theme references resolved.</summary>
+    private HWordFonts WordFonts(RunProps r)
+    {
+        string? Latin(string? theme, string? name) => theme is null ? name
+            : theme.StartsWith("major", StringComparison.Ordinal) ? _majorFont.Latin ?? name : _minorFont.Latin ?? name;
+        var complex = r.ComplexScriptTheme is { } theme
+            ? (theme.StartsWith("major", StringComparison.Ordinal) ? _majorComplexFont : _minorComplexFont) ?? r.ComplexScript
+            : r.ComplexScript;
+        var eastAsian = r.EastAsiaTheme is { } eastAsiaTheme
+            ? (eastAsiaTheme.StartsWith("major", StringComparison.Ordinal) ? _majorFont.EastAsian : _minorFont.EastAsian) ?? r.EastAsia
+            : r.EastAsia;
+        return new HWordFonts(Latin(r.AsciiOnlyTheme, r.AsciiOnly), Latin(r.HighAnsiTheme, r.HighAnsi), eastAsian, complex, r.Hint);
     }
 
     private (string? Latin, string? EastAsian) Fonts(RunProps r)

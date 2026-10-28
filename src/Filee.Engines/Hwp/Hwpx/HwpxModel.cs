@@ -1,7 +1,12 @@
 // In-memory document model between the readers (DOCX, Pandoc AST, plain text) and HwpxWriter.
 //
 // Lengths are HWPUNIT (1/7200 inch) and font sizes are 1/100 pt, like OWPML itself. A null format field means
-// "inherit from the 한글 style" (the Pandoc reader only knows bold/italic/..., the DOCX reader knows everything).
+// "inherit from the 한글 style" (the Pandoc reader only knows bold/italic/..., the DOCX reader knows everything);
+// StyleResolver turns those into concrete values.
+//
+// Members the writers write describe the document in 한글's terms. What only a renderer needs, kept with the meaning
+// the source gave it (Word line rules, 한글's language slots, stored line layout, crops, master pages ...), is in
+// HwpxModel.Layout.cs; the writers ignore it, so adding it changes no written file.
 
 namespace Filee.Engines.Hwp.Hwpx;
 
@@ -10,6 +15,9 @@ internal sealed class HDocument
 {
     public string? Title { get; set; }
     public List<HSection> Sections { get; } = [];
+
+    /// <summary>Custom East Asian line breaking characters (Word settings), by language; empty = the usual rules.</summary>
+    public List<HKinsoku> Kinsoku { get; } = [];
 }
 
 /// <summary>A run of pages sharing page setup, headers and footers (한글 "구역").</summary>
@@ -28,6 +36,12 @@ internal sealed class HSection
 
     /// <summary>Restart page numbering at this number; null continues from the previous section.</summary>
     public int? StartPageNumber { get; set; }
+
+    /// <summary>Line and character grid of the pages (Word's document grid, 한글's 줄/글자 격자); null = none.</summary>
+    public HDocumentGrid? Grid { get; set; }
+
+    /// <summary>Master pages (한글 바탕쪽) drawn behind the body of the section's pages.</summary>
+    public List<HMasterPage> MasterPages { get; } = [];
 
     public List<HBlock> Blocks { get; } = [];
 }
@@ -88,6 +102,9 @@ internal sealed class HParagraph : HBlock
     /// <summary>Columns change here without a new page (DOCX continuous section break); null = unchanged.</summary>
     public HColumns? ColumnsChange { get; set; }
 
+    /// <summary>Line layout stored with the paragraph (HWPX hp:linesegarray), or null.</summary>
+    public HLineLayout? Lines { get; set; }
+
     public List<HInline> Inlines { get; } = [];
 }
 
@@ -137,6 +154,9 @@ internal sealed class HTable : HBlock
     /// </summary>
     public bool Tight { get; set; }
 
+    /// <summary>How the table splits at the end of a page (한글 "쪽 경계에서"); null = the source does not say.</summary>
+    public HTablePageBreak? PageBreak { get; set; }
+
     public List<HBlock> Caption { get; } = [];
 }
 
@@ -148,6 +168,9 @@ internal sealed class HRow
     public int? Height { get; set; }
 
     public bool Header { get; set; }
+
+    /// <summary>The row is not split across pages (Word w:cantSplit).</summary>
+    public bool CantSplit { get; set; }
 }
 
 internal sealed class HCell
@@ -267,6 +290,15 @@ internal sealed class HImage(string path) : HInline
 
     /// <summary>Position for floating pictures; null = inline, moves with the text like a character.</summary>
     public HAnchor? Anchor { get; set; }
+
+    /// <summary>Parts of the picture cut away; null = the whole picture.</summary>
+    public HCrop? Crop { get; set; }
+
+    /// <summary>Rotation and mirroring; null = none.</summary>
+    public HTransform? Transform { get; set; }
+
+    /// <summary>Stacking order among floating objects (higher is in front); null = document order.</summary>
+    public int? ZOrder { get; set; }
 }
 
 /// <summary>A box with its own paragraphs (DOCX text box, 한글 글상자).</summary>
@@ -275,6 +307,15 @@ internal sealed class HTextBox : HInline
     public int Width { get; set; }
     public int Height { get; set; }
     public HAnchor? Anchor { get; set; }
+
+    /// <summary>Rotation and mirroring; null = none.</summary>
+    public HTransform? Transform { get; set; }
+
+    /// <summary>Stacking order among floating objects (higher is in front); null = document order.</summary>
+    public int? ZOrder { get; set; }
+
+    /// <summary>Outline of a polygon, curve or arc holding the text (<see cref="Shape"/> says which); else null.</summary>
+    public HGeometry? Geometry { get; set; }
     public string? Fill { get; set; }
     public HGradient? Gradient { get; set; }
     public HBorder Line { get; set; } = HBorder.Thin;
@@ -295,15 +336,33 @@ internal enum HShapeKind
     Rectangle,
     Ellipse,
     Line,
+
+    /// <summary>한글 다각형: <see cref="HGeometry.Points"/>. Only in models read for layout (the writers have none).</summary>
+    Polygon,
+
+    /// <summary>한글 곡선: <see cref="HGeometry.Segments"/>. Only in models read for layout.</summary>
+    Curve,
+
+    /// <summary>한글 호: <see cref="HGeometry.Arc"/>. Only in models read for layout.</summary>
+    Arc,
 }
 
-/// <summary>A drawing without text: rectangle, ellipse or straight line.</summary>
+/// <summary>A drawing without text: rectangle, ellipse or straight line (and, read for layout, polygon, curve or arc).</summary>
 internal sealed class HShape(HShapeKind kind) : HInline
 {
     public HShapeKind Kind { get; } = kind;
     public int Width { get; set; }
     public int Height { get; set; }
     public HAnchor? Anchor { get; set; }
+
+    /// <summary>Rotation and mirroring as the source stores them; null = none.</summary>
+    public HTransform? Transform { get; set; }
+
+    /// <summary>Stacking order among floating objects (higher is in front); null = document order.</summary>
+    public int? ZOrder { get; set; }
+
+    /// <summary>Outline of a polygon, curve or arc; null for the other kinds.</summary>
+    public HGeometry? Geometry { get; set; }
     public string? Fill { get; set; }
     public HGradient? Gradient { get; set; }
     public HBorder Line { get; set; } = HBorder.Thin;
@@ -358,6 +417,11 @@ internal readonly record struct HLineSpacing(HLineSpacingKind Kind, int Value);
 /// <paramref name="Left"/> and <paramref name="Right"/> then name the start and the end side, as Word's w:bidi
 /// paragraphs do (Left aligns to the right edge). Written to DOCX only; HWPX has no right-to-left paragraphs.
 /// </param>
+/// <param name="LineSpacing">Line spacing in 한글's terms, as the writers write it (Word spacing converted).</param>
+/// <param name="Layout">
+/// Rendering detail the writers do not write (the source's own line rule, borders, line breaking ...). It takes no
+/// part in equality: formats that differ only here are written alike. <see cref="SameLayout"/> compares it too.
+/// </param>
 internal readonly record struct HParaFormat(
     HAlign? Align = null,
     int? Left = null,
@@ -370,9 +434,14 @@ internal readonly record struct HParaFormat(
     bool? KeepLines = null,
     bool? WidowOrphan = null,
     IReadOnlyList<HTabStop>? Tabs = null,
-    bool? RightToLeft = null)
+    bool? RightToLeft = null,
+    HParaLayout? Layout = null)
 {
+    /// <summary>No member the writers write is set (<see cref="Layout"/> does not count).</summary>
     public bool IsEmpty => this == default;
+
+    /// <summary>Equal, including <see cref="Layout"/>.</summary>
+    public bool SameLayout(HParaFormat other) => Equals(other) && Equals(Layout, other.Layout);
 
     // Tab stop lists compare by content so equal formats share one paraPr.
     public bool Equals(HParaFormat other) =>
@@ -402,6 +471,12 @@ internal readonly record struct HTabStop(int Position, HTabKind Kind, string Lea
 /// <param name="EastAsianFont">Font for Hangul / Hanja / Japanese text and CJK punctuation (the symbol slot).</param>
 /// <param name="Color">Text colour "#RRGGBB".</param>
 /// <param name="Shade">Background (highlight) colour "#RRGGBB".</param>
+/// <param name="Spacing">Letter spacing in percent of the font size, as 한글 has it (Word's absolute spacing converted).</param>
+/// <param name="Layout">
+/// Rendering detail the writers do not write (한글's per-language slots, Word's four fonts and exact spacing). It
+/// takes no part in equality, hashing or <see cref="ToString"/>: formats that differ only here are written alike.
+/// <see cref="SameLayout"/> compares it too.
+/// </param>
 internal readonly record struct HCharFormat(
     bool? Bold = null,
     bool? Italic = null,
@@ -414,7 +489,29 @@ internal readonly record struct HCharFormat(
     string? EastAsianFont = null,
     string? Color = null,
     string? Shade = null,
-    int? Spacing = null)
+    int? Spacing = null,
+    HCharLayout? Layout = null)
 {
+    /// <summary>No member the writers write is set (<see cref="Layout"/> does not count).</summary>
     public bool IsEmpty => this == default;
+
+    /// <summary>Equal, including <see cref="Layout"/>.</summary>
+    public bool SameLayout(HCharFormat other) => Equals(other) && Equals(Layout, other.Layout);
+
+    public bool Equals(HCharFormat other) =>
+        Bold == other.Bold && Italic == other.Italic && Underline == other.Underline && Strike == other.Strike &&
+        Superscript == other.Superscript && Subscript == other.Subscript && Size == other.Size &&
+        Font == other.Font && EastAsianFont == other.EastAsianFont && Color == other.Color && Shade == other.Shade &&
+        Spacing == other.Spacing;
+
+    public override int GetHashCode() =>
+        HashCode.Combine(HashCode.Combine(Bold, Italic, Underline, Strike, Superscript, Subscript), Size, Font, EastAsianFont, Color, Shade, Spacing);
+
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Bold = {Bold}, Italic = {Italic}, Underline = {Underline}, Strike = {Strike}, Superscript = {Superscript}, ")
+               .Append($"Subscript = {Subscript}, Size = {Size}, Font = {Font}, EastAsianFont = {EastAsianFont}, Color = {Color}, ")
+               .Append($"Shade = {Shade}, Spacing = {Spacing}");
+        return true;
+    }
 }

@@ -158,7 +158,8 @@ internal sealed partial class DocxReader
         LoadTheme(theme);
         LoadThemeColors(theme);
         LoadNumbering(RelatedPart(main, "/numbering"));
-        _evenAndOddHeaders = RelatedPart(main, "/settings")?.Xml.Root?.Element(W + "evenAndOddHeaders") is { } evenOdd && Val(evenOdd) is not ("0" or "false");
+        var settings = RelatedPart(main, "/settings")?.Xml.Root;
+        _evenAndOddHeaders = settings?.Element(W + "evenAndOddHeaders") is { } evenOdd && Val(evenOdd) is not ("0" or "false");
         _footnotesPart = RelatedPart(main, "/footnotes");
         _endnotesPart = RelatedPart(main, "/endnotes");
         foreach (var note in _footnotesPart?.Xml.Root?.Elements(W + "footnote") ?? [])
@@ -167,6 +168,7 @@ internal sealed partial class DocxReader
             _endnotes[Attr(note, "id") ?? ""] = note;
 
         var document = new HDocument { Title = Title() };
+        Kinsoku(settings, document);
         var body = main.Xml.Root?.Element(W + "body") ?? throw new InvalidDataException("word/document.xml has no body.");
 
         // A section ends with the paragraph whose properties hold its sectPr; the last one is the body's own sectPr.
@@ -224,7 +226,7 @@ internal sealed partial class DocxReader
             return;
         }
 
-        var section = new HSection { Page = page, Columns = columns };
+        var section = new HSection { Page = page, Columns = columns, Grid = Grid(sectPr) };
         section.Blocks.AddRange(blocks);
 
         // Sections without their own header or footer reference inherit the previous section's.
@@ -339,7 +341,45 @@ internal sealed partial class DocxReader
         var natural = size * WordLineToHwpPercent / 100.0; // 1/100 pt = HWPUNIT
         var lines = Math.Max(1, Math.Ceiling(natural / cell));
         var multiple = (props.Line ?? 240) / 240.0;
-        paragraph.Format = paragraph.Format with { LineSpacing = new HLineSpacing(HLineSpacingKind.AtLeast, (int)Math.Round(lines * cell * multiple)) };
+        // The line rule itself stays Word's multiple, with the grid its lines snap to.
+        var layout = paragraph.Format.Layout ?? new HParaLayout();
+        paragraph.Format = paragraph.Format with
+        {
+            LineSpacing = new HLineSpacing(HLineSpacingKind.AtLeast, (int)Math.Round(lines * cell * multiple)),
+            Layout = layout with { LineHeight = (layout.LineHeight ?? new HLineHeight(HLineHeightRule.Multiple, props.Line ?? 240)) with { GridPitch = cell } },
+        };
+    }
+
+    /// <summary>The section's document grid (w:docGrid); null without one.</summary>
+    private static HDocumentGrid? Grid(XElement? sectPr)
+    {
+        var grid = sectPr?.Element(W + "docGrid");
+        var kind = Attr(grid, "type") switch
+        {
+            "lines" => HGridKind.Lines,
+            "linesAndChars" => HGridKind.LinesAndChars,
+            "snapToChars" => HGridKind.SnapToChars,
+            _ => HGridKind.None,
+        };
+        return kind == HGridKind.None ? null : new HDocumentGrid(kind, HwpxUnits.FromTwips(Twips(grid, "linePitch") ?? 0), CharSpace: Twips(grid, "charSpace") ?? 0);
+    }
+
+    /// <summary>Custom East Asian line breaking characters of the document (settings: w:noLineBreaksBefore / After).</summary>
+    private static void Kinsoku(XElement? settings, HDocument document)
+    {
+        var rules = new Dictionary<string, (string? Start, string? End)>();
+        foreach (var element in settings?.Elements() ?? [])
+        {
+            var before = element.Name == W + "noLineBreaksBefore";
+            if (!before && element.Name != W + "noLineBreaksAfter")
+                continue;
+            var language = Attr(element, "lang") ?? "";
+            var (start, end) = rules.GetValueOrDefault(language);
+            // "No line break before" a character: it cannot start a line; "after": it cannot end one.
+            rules[language] = before ? (Val(element), end) : (start, Val(element));
+        }
+        foreach (var (language, (start, end)) in rules)
+            document.Kinsoku.Add(new HKinsoku(language.Length > 0 ? language : null, start, end));
     }
 
     private static int? MaxFontSize(IEnumerable<HInline> inlines)

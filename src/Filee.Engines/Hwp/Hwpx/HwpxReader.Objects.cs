@@ -1,6 +1,8 @@
 // Objects inside runs: pictures (inline or floating), rectangles / ellipses / lines, text boxes (drawing objects with
 // hp:drawText), groups (hp:container), equations and other objects that only carry text. Objects the model cannot
-// hold (OLE, charts, video, form controls, free-form shapes without text) are skipped and counted.
+// hold (OLE, charts, video, form controls, free-form shapes without text) are skipped and counted. Read for layout,
+// polygons, curves and arcs become shapes with their outline. Every object keeps its rotation, mirroring and z-order,
+// pictures their crop.
 
 using System.Globalization;
 using System.Xml.Linq;
@@ -83,6 +85,8 @@ internal sealed partial class HwpxReader
                         // A line runs corner to corner of its box; the end points say which corners.
                         FlipHorizontal = Int(start, "x") > Int(end, "x"),
                         FlipVertical = Int(start, "y") > Int(end, "y"),
+                        Transform = Transform(element),
+                        ZOrder = ZOrder(element),
                     };
                     break;
                 }
@@ -90,6 +94,17 @@ internal sealed partial class HwpxReader
                 foreach (var member in Group(element, placement))
                     yield return member;
                 break;
+            case "polygon" or "curve" or "arc" when _forLayout:
+                {
+                    var kind = element.Name.LocalName switch
+                    {
+                        "polygon" => HShapeKind.Polygon,
+                        "curve" => HShapeKind.Curve,
+                        _ => HShapeKind.Arc,
+                    };
+                    yield return Box(element, kind, placement, Geometry(element, kind, placement));
+                    break;
+                }
             default:
                 // Arcs, polygons, curves and connectors: only their text survives, in a box without outline.
                 if (Child(element, "drawText") is not null)
@@ -117,12 +132,66 @@ internal sealed partial class HwpxReader
                 Width = placement.Width > 0 ? placement.Width : null,
                 Height = placement.Height > 0 ? placement.Height : null,
                 Anchor = placement.Anchor,
+                Crop = Crop(pic),
+                Transform = Transform(pic),
+                ZOrder = ZOrder(pic),
             }
             : null;
     }
 
-    /// <summary>A rectangle or ellipse: a text box when it has text (hp:drawText), else a plain shape.</summary>
-    private HInline Box(XElement element, HShapeKind kind, Placement placement)
+    /// <summary>
+    /// The part of the picture shown: hp:imgClip is a rectangle in the picture's original size (hp:imgDim), which
+    /// spans the whole picture when nothing is cut away. Files from Filee write zeros for both: no crop.
+    /// </summary>
+    private static HCrop? Crop(XElement pic)
+    {
+        var clip = Child(pic, "imgClip");
+        var dimension = Child(pic, "imgDim");
+        var (width, height) = (Int(dimension, "dimwidth"), Int(dimension, "dimheight"));
+        var (right, bottom) = (Int(clip, "right"), Int(clip, "bottom"));
+        if (clip is null || width <= 0 || height <= 0 || right <= 0 || bottom <= 0)
+            return null;
+        static double Fraction(int part, int whole) => Math.Clamp(part / (double)whole, 0, 1);
+        var crop = new HCrop(Fraction(Int(clip, "left"), width), Fraction(Int(clip, "top"), height), Fraction(width - right, width), Fraction(height - bottom, height));
+        return crop.IsEmpty ? null : crop;
+    }
+
+    /// <summary>Rotation (hp:rotationInfo) and mirroring (hp:flip) of a drawing object; null when it has neither.</summary>
+    private static HTransform? Transform(XElement element)
+    {
+        var flip = Child(element, "flip");
+        var transform = new HTransform(Int(Child(element, "rotationInfo"), "angle"), Flag(flip, "horizontal"), Flag(flip, "vertical"));
+        return transform.IsIdentity ? null : transform;
+    }
+
+    private static int? ZOrder(XElement element) => Attr(element, "zOrder") is not null ? Int(element, "zOrder") : null;
+
+    /// <summary>Outline of a polygon (hc:pt), curve (hp:seg) or arc (center, ax1, ax2) in its original size (hp:orgSz).</summary>
+    private static HGeometry Geometry(XElement element, HShapeKind kind, Placement placement)
+    {
+        var original = Child(element, "orgSz");
+        var (width, height) = (Int(original, "width", placement.Width), Int(original, "height", placement.Height));
+        static HPoint Point(XElement? point) => new(Int(point, "x"), Int(point, "y"));
+        return kind switch
+        {
+            HShapeKind.Polygon => new HGeometry(width, height, Points: Children(element, "pt").Select(Point).ToList()),
+            HShapeKind.Curve => new HGeometry(width, height, Segments: Children(element, "seg")
+                .Select(s => new HCurveSegment(Attr(s, "type") == "CURVE", new HPoint(Int(s, "x1"), Int(s, "y1")), new HPoint(Int(s, "x2"), Int(s, "y2"))))
+                .ToList()),
+            _ => new HGeometry(width, height, Arc: new HArc(Attr(element, "type") switch
+            {
+                "PIE" => HArcKind.Pie,
+                "CHORD" => HArcKind.Chord,
+                _ => HArcKind.Normal,
+            }, Point(Child(element, "center")), Point(Child(element, "ax1")), Point(Child(element, "ax2")))),
+        };
+    }
+
+    /// <summary>
+    /// A rectangle or ellipse (read for layout also a polygon, curve or arc with its <paramref name="geometry"/>): a
+    /// text box when it has text (hp:drawText), else a plain shape.
+    /// </summary>
+    private HInline Box(XElement element, HShapeKind kind, Placement placement, HGeometry? geometry = null)
     {
         var line = LineShape(Child(element, "lineShape"));
         var (fill, gradient) = FillBrush(Child(element, "fillBrush"));
@@ -138,6 +207,9 @@ internal sealed partial class HwpxReader
                 Gradient = gradient,
                 Line = line,
                 CornerRatio = ratio,
+                Transform = Transform(element),
+                ZOrder = ZOrder(element),
+                Geometry = geometry,
             };
         }
 
@@ -154,6 +226,9 @@ internal sealed partial class HwpxReader
             Shape = kind,
             CornerRatio = ratio,
             VerticalAlign = VerticalAlign(Attr(subList, "vertAlign")),
+            Transform = Transform(element),
+            ZOrder = ZOrder(element),
+            Geometry = geometry,
         };
         if (margin is not null)
             box.Padding = new HInsets(Int(margin, "left"), Int(margin, "right"), Int(margin, "top"), Int(margin, "bottom"));

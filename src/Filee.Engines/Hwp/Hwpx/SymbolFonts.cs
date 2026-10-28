@@ -119,7 +119,12 @@ internal static class SymbolFonts
     public static HCharFormat WithoutSymbolFont(HCharFormat format)
     {
         var eastAsian = IsSymbolFont(format.EastAsianFont) ? null : format.EastAsianFont;
-        return format with { Font = IsSymbolFont(format.Font) ? eastAsian : format.Font, EastAsianFont = eastAsian };
+        // Word's own fonts lose the symbol font too, so the mapped characters are not drawn in it.
+        string? Plain(string? font) => IsSymbolFont(font) ? null : font;
+        var layout = format.Layout is { WordFonts: { } fonts } detail
+            ? detail with { WordFonts = fonts with { Ascii = Plain(fonts.Ascii), HighAnsi = Plain(fonts.HighAnsi), EastAsia = Plain(fonts.EastAsia), ComplexScript = Plain(fonts.ComplexScript) } }
+            : format.Layout;
+        return format with { Font = IsSymbolFont(format.Font) ? eastAsian : format.Font, EastAsianFont = eastAsian, Layout = layout };
     }
 
     /// <summary>

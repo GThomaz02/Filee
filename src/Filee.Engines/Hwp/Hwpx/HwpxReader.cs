@@ -8,6 +8,10 @@
 //  * HwpxReader.Header.cs  header.xml: fonts, character and paragraph shapes, numberings, bullets, borders, tab stops;
 //  * HwpxReader.Body.cs    paragraphs, runs, text, fields (hyperlinks), notes, bookmarks and tables;
 //  * HwpxReader.Objects.cs pictures, drawing objects, text boxes, groups and equations.
+//
+// Read() gives the model the writers expect. ReadForLayout() also keeps what only a renderer uses and that would
+// change converted files: runs that differ only in layout detail stay apart, polygons, curves and arcs become shapes,
+// and master pages are read. Both fill the rendering detail of formats and objects (HwpxModel.Layout.cs).
 
 using System.Globalization;
 using System.IO.Compression;
@@ -23,8 +27,22 @@ internal sealed partial class HwpxReader
     private const string HwpUnitCharNamespace = "HwpUnitChar";
     private const string Paragraph2016Namespace = "http://www.hancom.co.kr/hwpml/2016/paragraph";
 
-    private readonly ZipArchive _zip;
+    /// <summary>
+    /// content.hpf metadata (opf:meta with this name and content "estimated") that marks the stored line layouts as
+    /// estimated by Filee rather than laid out by 한글. HwpxWriter stores no line segments today; a writer that
+    /// estimates them must add this marker so the layout engine does not trust them.
+    /// </summary>
+    internal const string EstimatedLinesMeta = "FileeLineSegments";
+
+    private readonly ZipArchive? _zip;
     private readonly string _mediaFolder;
+    private readonly bool _forLayout;
+
+    /// <summary>Manifest item id → zip entry (master page parts are found through it).</summary>
+    private Dictionary<string, string> _items = new(StringComparer.Ordinal);
+
+    /// <summary>The package says its stored line layouts were estimated by Filee.</summary>
+    private bool _estimatedLines;
 
     /// <summary>Manifest item id → zip entry of embedded binaries (pictures).</summary>
     private readonly Dictionary<string, string> _binaryItems = new(StringComparer.Ordinal);
@@ -35,11 +53,14 @@ internal sealed partial class HwpxReader
     /// <summary>Elements the model cannot hold, by local name, with the number of times they were skipped.</summary>
     private readonly Dictionary<string, int> _skipped = new(StringComparer.Ordinal);
 
-    private HwpxReader(ZipArchive zip, string mediaFolder)
+    private HwpxReader(ZipArchive? zip, string mediaFolder, bool forLayout)
     {
         _zip = zip;
         _mediaFolder = mediaFolder;
+        _forLayout = forLayout;
     }
+
+    private ZipArchive Zip => _zip ?? throw new InvalidOperationException("This reader only has a header.");
 
     // ───────────────────────── Entry points ─────────────────────────
 
@@ -47,7 +68,25 @@ internal sealed partial class HwpxReader
     public static HDocument Read(string path, string mediaFolder) => Read(path, mediaFolder, null);
 
     /// <param name="skipped">Receives the elements that were skipped because the model has no equivalent (local name → count).</param>
-    public static HDocument Read(string path, string mediaFolder, IDictionary<string, int>? skipped)
+    public static HDocument Read(string path, string mediaFolder, IDictionary<string, int>? skipped) =>
+        ReadPackage(path, mediaFolder, skipped, forLayout: false);
+
+    /// <summary>
+    /// Reads <paramref name="path"/> for the layout engine: like <see cref="Read(string, string, IDictionary{string, int}?)"/>,
+    /// plus what only a renderer uses (runs apart by layout detail, polygons / curves / arcs, master pages).
+    /// </summary>
+    public static HDocument ReadForLayout(string path, string mediaFolder, IDictionary<string, int>? skipped = null) =>
+        ReadPackage(path, mediaFolder, skipped, forLayout: true);
+
+    /// <summary>A reader of header.xml alone, for its character and paragraph shapes (see <see cref="StyleResolver"/>).</summary>
+    internal static HwpxReader ForHeader(XElement head)
+    {
+        var reader = new HwpxReader(null, "", forLayout: true);
+        reader.LoadHeader(head);
+        return reader;
+    }
+
+    private static HDocument ReadPackage(string path, string mediaFolder, IDictionary<string, int>? skipped, bool forLayout)
     {
         ZipArchive zip;
         try
@@ -61,7 +100,7 @@ internal sealed partial class HwpxReader
 
         using (zip)
         {
-            var reader = new HwpxReader(zip, mediaFolder);
+            var reader = new HwpxReader(zip, mediaFolder, forLayout);
             var document = reader.ReadDocument();
             if (skipped is not null)
             {
@@ -107,6 +146,8 @@ internal sealed partial class HwpxReader
             if (entry.StartsWith("BinData/", StringComparison.OrdinalIgnoreCase) && Attr(item, "isEmbeded") is not "0")
                 _binaryItems[id] = entry;
         }
+        _items = items;
+        _estimatedLines = Descendants(package?.Root, "meta").Any(m => Attr(m, "name") == EstimatedLinesMeta && (Attr(m, "content") ?? m.Value) == "estimated");
 
         var header = LoadXml(items.Values.FirstOrDefault(p => p.EndsWith("header.xml", StringComparison.OrdinalIgnoreCase)) ?? "Contents/header.xml", required: true)!;
         LoadHeader(header.Root!);
@@ -159,7 +200,7 @@ internal sealed partial class HwpxReader
         if (result.Count > 0)
             return result;
 
-        return _zip.Entries
+        return Zip.Entries
             .Where(e => e.FullName.StartsWith("Contents/", StringComparison.OrdinalIgnoreCase) && IsSection(e.FullName))
             .OrderBy(e => int.TryParse(Path.GetFileNameWithoutExtension(e.Name).AsSpan(7), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : int.MaxValue)
             .Select(e => e.FullName)
@@ -169,14 +210,14 @@ internal sealed partial class HwpxReader
     private string? EntryPath(string href, string folder)
     {
         var path = Uri.UnescapeDataString(href).Replace('\\', '/').TrimStart('/');
-        if (_zip.GetEntry(path) is not null)
+        if (Zip.GetEntry(path) is not null)
             return path;
-        return folder.Length > 0 && _zip.GetEntry(folder + path) is not null ? folder + path : path;
+        return folder.Length > 0 && Zip.GetEntry(folder + path) is not null ? folder + path : path;
     }
 
     private XDocument? LoadXml(string path, bool required)
     {
-        var entry = _zip.GetEntry(path);
+        var entry = Zip.GetEntry(path);
         if (entry is null)
         {
             return required
@@ -206,10 +247,10 @@ internal sealed partial class HwpxReader
 
         // Without a manifest entry, 한글's naming (BinData/<id>.<ext>) still finds the file.
         var entryPath = _binaryItems.GetValueOrDefault(itemId)
-                        ?? _zip.Entries.FirstOrDefault(e => e.FullName.StartsWith("BinData/", StringComparison.OrdinalIgnoreCase) &&
+                        ?? Zip.Entries.FirstOrDefault(e => e.FullName.StartsWith("BinData/", StringComparison.OrdinalIgnoreCase) &&
                                                             string.Equals(Path.GetFileNameWithoutExtension(e.Name), itemId, StringComparison.OrdinalIgnoreCase))?.FullName;
         string? path = null;
-        if (entryPath is not null && _zip.GetEntry(entryPath) is { } entry)
+        if (entryPath is not null && Zip.GetEntry(entryPath) is { } entry)
         {
             Directory.CreateDirectory(_mediaFolder);
             path = Path.Combine(_mediaFolder, $"hwpx-media-{_media.Count + 1}{Path.GetExtension(entry.Name).ToLowerInvariant()}");
@@ -303,10 +344,43 @@ internal sealed partial class HwpxReader
         var secPr = Elements(p).Where(e => e.Name.LocalName == "run").SelectMany(Elements).FirstOrDefault(e => e.Name.LocalName == "secPr");
         if (secPr is not null)
         {
-            state.Begin(Section(secPr));
+            var section = state.Begin(Section(secPr));
             _outlineNumberingId = Attr(secPr, "outlineShapeIDRef");
+            if (_forLayout)
+                MasterPages(secPr, section);
         }
         ReadParagraph(p, state.Current.Blocks, state);
+    }
+
+    /// <summary>
+    /// Master pages (바탕쪽): the secPr refers to them by manifest id (hp:masterPage idRef), each a part of its own
+    /// whose root holds the type and a paragraph list.
+    /// </summary>
+    private void MasterPages(XElement secPr, HSection section)
+    {
+        foreach (var reference in Descendants(secPr, "masterPage"))
+        {
+            var root = Attr(reference, "idRef") is { Length: > 0 } id
+                ? LoadXml(_items.GetValueOrDefault(id) ?? $"Contents/{id}.xml", required: false)?.Root
+                : reference;
+            if (root is null)
+                continue;
+            var page = new HMasterPage(Attr(root, "type") switch
+            {
+                "EVEN" => HMasterPageKind.Even,
+                "ODD" => HMasterPageKind.Odd,
+                "LAST_PAGE" => HMasterPageKind.LastPage,
+                "OPTIONAL_PAGE" => HMasterPageKind.OptionalPage,
+                _ => HMasterPageKind.Both,
+            })
+            {
+                PageNumber = Int(root, "pageNumber"),
+                Duplicate = Flag(root, "pageDuplicate"),
+                Front = Flag(root, "pageFront"),
+            };
+            page.Blocks.AddRange(ReadSubList(Child(root, "subList")));
+            section.MasterPages.Add(page);
+        }
     }
 
     private static HSection Section(XElement secPr)
@@ -321,8 +395,13 @@ internal sealed partial class HwpxReader
 
         var visibility = Child(secPr, "visibility");
         var start = Int(Child(secPr, "startNum"), "page");
+        var grid = Child(secPr, "grid");
+        var (lineGrid, charGrid) = (Math.Max(0, Int(grid, "lineGrid")), Math.Max(0, Int(grid, "charGrid")));
         return new HSection
         {
+            Grid = lineGrid > 0 || charGrid > 0
+                ? new HDocumentGrid(charGrid == 0 ? HGridKind.Lines : lineGrid == 0 ? HGridKind.SnapToChars : HGridKind.LinesAndChars, lineGrid, charGrid)
+                : null,
             Page = new HPage(width, height,
                 Left: Int(margin, "left", 7200), Right: Int(margin, "right", 7200),
                 Top: Int(margin, "top", 4255), Bottom: Int(margin, "bottom", 4960),
