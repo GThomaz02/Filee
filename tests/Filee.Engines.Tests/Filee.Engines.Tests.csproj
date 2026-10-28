@@ -25,5 +25,7 @@
     <None Update="Fonts\*.ttf;Fonts\*.otf;Fonts\*.woff2" CopyToOutputDirectory="PreserveNewest" />
     <!-- Small Shapefiles written by GDAL for the geospatial tests (synthetic data; Geo/make-test-geo.py recreates them). -->
     <None Update="Geo\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- What each renderer measured where it falls short of the ideal (RenderQuality/RenderThresholds.cs). -->
+    <None Update="RenderQuality\render-thresholds.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

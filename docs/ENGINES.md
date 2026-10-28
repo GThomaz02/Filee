@@ -620,7 +620,15 @@ glyphs a thousand times too small. They are now combined the way rasterizers do 
 and advances at the same glyph IDs in Skia, composite components kept, CFF converted, tables dropped, cmap round
 trips); `tests/Filee.Engines.Tests/PdfPageWriterTests.cs` builds the page above and checks size, fonts, text and the
 PDFium picture, with each installed Korean font (Malgun Gothic, Noto Sans CJK, Noto Sans KR VF; skipped when none is
-installed), plus page sizes, links and the outline.
+installed), plus page sizes, links and the outline. The page also passes the render quality harness's read-back checks.
+
+### Render quality harness
+
+How the renderer is measured, against rhwp now and against the PDFs 한글 printed: [RENDER-QUALITY.md](RENDER-QUALITY.md).
+A feature matrix of documents written in code, read-back checks of the PDF (text, overlapping glyphs, page and
+margins, page count, baselines, embedded fonts), a compare of two renderings (page count, line breaks, per-page SSIM
+at 100 dpi) with thresholds kept in `tests/Filee.Engines.Tests/RenderQuality/render-thresholds.json`, and
+`build/render-compare.ps1` for a private corpus. The layout engine plugs in at `DocumentRenderers.Candidate`.
 
 ## Filee renderer: fonts, shaping and Unicode tables
 
