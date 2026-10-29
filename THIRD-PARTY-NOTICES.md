@@ -81,6 +81,8 @@ Downloaded from their official release pages when the user chooses to install th
 | calibre (ebook-convert) | GPL-3.0 | https://calibre-ebook.com |
 | Tesseract OCR 5.4 (UB Mannheim Windows build, with Leptonica and the MinGW libraries it ships; their notices are in its `doc` folder) | Apache-2.0 (Tesseract); Leptonica BSD-2-Clause; others as listed in the build | https://github.com/tesseract-ocr/tesseract, build: https://github.com/UB-Mannheim/tesseract |
 | Tesseract language data (tessdata_fast 4.1.0), downloaded per language when used | Apache-2.0 | https://github.com/tesseract-ocr/tessdata_fast |
+| whisper.cpp (release build b5454, `whisper-cli.exe` and its DLLs; a separate program) | MIT | https://github.com/ggml-org/whisper.cpp |
+| Whisper speech models (ggml format: tiny, base, small, medium), downloaded when first used | MIT | https://huggingface.co/ggerganov/whisper.cpp |
 
 These programs run as separate processes. Their source code is available from the linked projects.
 

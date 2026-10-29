@@ -937,6 +937,49 @@ internal static class SettingsMigrations
         // v56: Bink videos (.bik, #751) learn the video donut; custom claims stay put.
         if (from < 56)
             changed |= LearnExtensions(profiles, out _, ["bik"]);
+        // v57: "Transcribe" (TXT, SRT, WebVTT with Whisper), after "Searchable PDF" as in a new library, and on the back of
+        //      the audio and video donuts where there is room (on the video donut in place of the second frame format
+        //      and of WAV, which stay in the library) unless the user has put them elsewhere already.
+        if (from < 57)
+            changed |= AddTranscribePresets(presets, profiles);
+        return changed;
+    }
+
+    private static bool AddTranscribePresets(List<Preset> presets, List<ToolbarProfile> profiles)
+    {
+        var changed = false;
+        var at = presets.FindIndex(p => p.Id == "searchable-pdf");
+        at = at < 0 ? presets.Count : at + 1;
+        foreach (var preset in BuiltInData.TranscribePresets())
+        {
+            if (presets.Any(p => p.Id == preset.Id))
+                continue;
+            presets.Insert(Math.Min(at++, presets.Count), preset);
+            changed = true;
+        }
+        foreach (var (profileId, ids) in new (string, string[])[]
+                 { ("audio", ["transcribe-txt", "transcribe-srt", "transcribe-vtt"]), ("video", ["transcribe-txt", "transcribe-srt"]) })
+        {
+            if (profiles.FirstOrDefault(p => p.Id == profileId) is not { BackPresetIds: { } back } profile)
+                continue;
+            var replaceable = profileId == "video" ? new Queue<string>(["extract-frames-jpg", "to-wav"]) : new Queue<string>();
+            foreach (var id in ids)
+            {
+                if (back.Contains(id) || profile.PresetIds.Contains(id) || presets.All(p => p.Id != id))
+                    continue;
+                if (back.Count < ToolbarProfile.MaxSlices)
+                {
+                    InsertBefore(back, id, "zip-all");
+                    changed = true;
+                }
+                else if (replaceable.Count > 0 && back.IndexOf(replaceable.Peek()) is var slot and >= 0)
+                {
+                    back[slot] = id;
+                    replaceable.Dequeue();
+                    changed = true;
+                }
+            }
+        }
         return changed;
     }
 

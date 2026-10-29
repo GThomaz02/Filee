@@ -1131,6 +1131,9 @@ public class UserDataStoreTests
         var profiles = BuiltInData.CreateProfiles();
         var video = profiles.Single(p => p.Id == "video");
         video.BackPresetIds!.RemoveAll(id => id is "live-photo-iphone" or "motion-photo-android");
+        // Schema 30 had the second frame format and WAV where a new library has "Transcribe" (schema 57).
+        video.BackPresetIds[video.BackPresetIds.IndexOf("transcribe-txt")] = "extract-frames-jpg";
+        video.BackPresetIds[video.BackPresetIds.IndexOf("transcribe-srt")] = "to-wav";
 
         Assert.True(SettingsMigrations.ApplyToLibrary(30, presets, profiles));
 

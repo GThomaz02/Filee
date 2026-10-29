@@ -89,10 +89,10 @@ elseif (-not $PublishDir) {
     Set-Content (Join-Path $PublishDir 'cli\filee.cmd') "@`"%~dp0..\filee-cli.exe`" %*" -Encoding ascii
     # Next to Filee.exe: the Explorer menu package's external location is the install folder.
     & (Join-Path $PSScriptRoot 'build-explorer-menu.ps1') -Destination $PublishDir -Version $Version
-    # Only the small rhwp and 7-Zip are bundled; the app downloads the others when the user picks them. The Microsoft
+    # Only the small rhwp, 7-Zip and whisper.cpp are bundled; the app downloads the others when the user picks them. The Microsoft
     # C++ runtime goes next to rhwp.exe and next to Filee.exe (unhwp.dll imports VCRUNTIME140.dll), so neither needs
     # the Visual C++ Redistributable (#248).
-    & (Join-Path $PSScriptRoot 'fetch-engines.ps1') -Only rhwp, 7zip -Destination (Join-Path $PublishDir 'engines') -RuntimeTo $PublishDir
+    & (Join-Path $PSScriptRoot 'fetch-engines.ps1') -Only rhwp, 7zip, whisper -Destination (Join-Path $PublishDir 'engines') -RuntimeTo $PublishDir
 }
 $PublishDir = (Resolve-Path $PublishDir).Path
 if (-not (Test-Path (Join-Path $PublishDir 'Filee.exe'))) { throw "Filee.exe is missing in $PublishDir" }

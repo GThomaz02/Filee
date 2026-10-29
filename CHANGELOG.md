@@ -14,6 +14,20 @@ change, a language may repeat; a language without lines shows the English ones):
 - `recommended`: bug fixes. The card shows once per version.
 - `optional`: new features only. No card, the sidebar button only.
 
+## 2.3.0
+
+<!-- update
+level: optional
+en: Transcribe: turn the speech of any audio or video file into text (TXT) or subtitles with times (SRT, WebVTT), on this PC with Whisper
+pt-BR: Transcrever: transforma a fala de qualquer áudio ou vídeo em texto (TXT) ou legendas com tempo (SRT, WebVTT), neste PC, com o Whisper
+-->
+
+- **Transcribe** (this fork): on the back of the audio and video donuts, drop a file on "Transcribe (TXT)", "Transcribe
+  (SRT)" or "Transcribe (WebVTT)". Whisper (whisper.cpp) listens to the sound and writes what is said. It runs offline:
+  nothing is uploaded. The first time, Filee downloads the speech model (about 470 MB). Needs FFmpeg (Settings →
+  Engines). The language is detected automatically; the built-in presets use the "small" model.
+- This version updates from the fork's own releases (github.com/GThomaz02/Filee).
+
 ## 2.2.0
 
 <!-- update

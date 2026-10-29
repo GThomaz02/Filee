@@ -45,6 +45,8 @@ public static class EngineDownloads
         new("ffmpeg", ["ffmpeg"], 272_000_000, ["ffmpeg"]),
         new("calibre", ["calibre"], 663_000_000, ["calibre"]),
         new("tesseract", ["tesseract"], 168_000_000, ["tesseract"]),
+        // whisper.cpp: the program only. The speech model (Speech/WhisperModels) is downloaded the first time a preset uses it.
+        new("whisper", ["whisper"], 40_000_000, ["whisper"]),
     ];
 
     /// <summary>Total download size of a package in bytes.</summary>
@@ -62,6 +64,7 @@ public static class EngineDownloads
                 "ffmpeg" => "Install FFmpeg with Homebrew (brew install ffmpeg), then check again or select its bin folder.",
                 "ghostscript" => "Install Ghostscript with Homebrew (brew install ghostscript), then check again or select its bin folder.",
                 "tesseract" => "Install Tesseract with Homebrew (brew install tesseract), then check again or select its bin folder.",
+                "whisper" => "Install whisper.cpp with Homebrew (brew install whisper-cpp), then check again or select its bin folder.",
                 "calibre" => "The calibre Filee downloads needs macOS 14 or later. Install calibre 7.26 from calibre-ebook.com and select its .app folder.",
                 _ => $"No Filee download is available for {RuntimeIdentifier}. Install {package.Id} for this Mac and select its program or .app folder.",
             };

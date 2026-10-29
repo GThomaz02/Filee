@@ -79,11 +79,21 @@ public sealed class RoutePlanner
     /// edge to PDF, from the file itself or from a PNG of a picture Tesseract can't read, then the cheapest route from
     /// that PDF on. Without it those edges are never taken.
     /// </param>
+    /// <param name="transcribe">
+    /// Write the speech of an audio or video file as text (<see cref="Presets.Preset.TranscribesOf"/>): the route is one
+    /// <see cref="ConversionEdge.Transcribe"/> edge, or none. Without it those edges are never taken.
+    /// </param>
     public Route? Plan(string from, string to, bool frames = false, bool shaping = false, bool motionPhoto = false, bool livePhoto = false,
-        bool ocr = false)
+        bool ocr = false, bool transcribe = false)
     {
         from = from.ToLowerInvariant();
         to = to.ToLowerInvariant();
+
+        if (transcribe)
+        {
+            var speech = EdgesFrom(from).Where(e => e.Edge.To == to && e.Edge.Transcribe).OrderBy(e => e.Cost).FirstOrDefault();
+            return speech.Converter is null ? null : new Route([new RouteStep(speech.Converter, from, to)], speech.Cost);
+        }
 
         if (ocr)
             return PlanWithOcr(from, to, shaping);
@@ -107,7 +117,7 @@ public sealed class RoutePlanner
         if (from == to)
         {
             var best = EdgesFrom(from)
-                .Where(e => e.Edge.To == to && !e.Edge.FrameSequence && !e.Edge.MotionPhoto && !e.Edge.LivePhoto && !e.Edge.Ocr)
+                .Where(e => e.Edge.To == to && !e.Edge.FrameSequence && !e.Edge.MotionPhoto && !e.Edge.LivePhoto && !e.Edge.Ocr && !e.Edge.Transcribe)
                 .OrderBy(e => e.Cost)
                 .FirstOrDefault();
             return best.Converter is null
@@ -136,7 +146,7 @@ public sealed class RoutePlanner
 
             foreach (var (converter, edge, edgeCost) in EdgesFrom(node))
             {
-                if (edge.To == edge.From || edge.FrameSequence || edge.MotionPhoto || edge.LivePhoto || edge.Ocr
+                if (edge.To == edge.From || edge.FrameSequence || edge.MotionPhoto || edge.LivePhoto || edge.Ocr || edge.Transcribe
                     || (edge.ImageSourcesOnly && !imageSource) || (edge.NotForImageSources && imageSource)
                     || (edge.Unshaped && shaping)
                     || (edge.DirectOnly && (node != from || edge.To != to)))
@@ -167,8 +177,10 @@ public sealed class RoutePlanner
     /// <param name="motionPhoto">The video of a Live / Motion Photo (see <see cref="Plan"/>).</param>
     /// <param name="livePhoto">A Live / Motion Photo of a video (see <see cref="Plan"/>).</param>
     /// <param name="ocr">Recognize the text first (see <see cref="Plan"/>).</param>
-    public bool CanConvert(string from, string to, bool frames = false, bool motionPhoto = false, bool livePhoto = false, bool ocr = false) =>
-        Plan(from, to, frames, motionPhoto: motionPhoto, livePhoto: livePhoto, ocr: ocr) is not null;
+    /// <param name="transcribe">Write the speech as text (see <see cref="Plan"/>).</param>
+    public bool CanConvert(string from, string to, bool frames = false, bool motionPhoto = false, bool livePhoto = false, bool ocr = false,
+        bool transcribe = false) =>
+        Plan(from, to, frames, motionPhoto: motionPhoto, livePhoto: livePhoto, ocr: ocr, transcribe: transcribe) is not null;
 
     private Route? PlanWithOcr(string from, string to, bool shaping)
     {

@@ -79,7 +79,7 @@ public class MediaToolTests
         var presets = BuiltInData.CreatePresets().Where(p => !ToolIds.Contains(p.Id)).ToList();
         var profiles = BuiltInData.CreateProfiles();
         foreach (var profile in profiles)
-            profile.BackPresetIds!.RemoveAll(ToolIds.Contains);
+            profile.BackPresetIds!.RemoveAll(id => ToolIds.Contains(id) || id.StartsWith("transcribe-", StringComparison.Ordinal));
         // The video donut's back face of schema 36, with the plain M4A slice.
         profiles.Single(p => p.Id == "video").BackPresetIds = ["mp4-av1", "to-webp", "extract-frames-png", "extract-frames-jpg",
             "live-photo-iphone", "motion-photo-android", "to-m4a", "to-wav", "to-flac", "zip-all"];
@@ -93,7 +93,7 @@ public class MediaToolTests
 
         Assert.All(ToolIds, id => Assert.Single(presets, p => p.Id == id));
         var audio = profiles.Single(p => p.Id == "audio").BackPresetIds!;
-        Assert.Equal(["to-alac", "compress-audio", "merge-audio", "remove-metadata", "zip-all"], audio);
+        Assert.Equal(["to-alac", "compress-audio", "merge-audio", "remove-metadata", "transcribe-txt", "transcribe-srt", "transcribe-vtt", "zip-all"], audio);
         // "Extract audio" takes the M4A slice's place; the new library's back face is what an upgraded one gets.
         var video = profiles.Single(p => p.Id == "video").BackPresetIds!;
         Assert.Equal(BuiltInData.CreateProfiles().Single(p => p.Id == "video").BackPresetIds, video);
@@ -146,7 +146,9 @@ public class MediaToolTests
         Assert.True(SettingsMigrations.ApplyToLibrary(36, presets, profiles));
 
         // "Cut a clip" (schema 45) comes in first as well.
-        Assert.Equal(["tool-clip", "mp4-av1", "to-wav", "compress-video", "merge-videos", "extract-audio", "zip-all"], video.BackPresetIds);
+        // "Transcribe" (schema 57) comes in with the room that is left.
+        Assert.Equal(["tool-clip", "mp4-av1", "to-wav", "compress-video", "merge-videos", "extract-audio", "transcribe-txt", "transcribe-srt", "zip-all"],
+            video.BackPresetIds);
     }
 
     [Fact]

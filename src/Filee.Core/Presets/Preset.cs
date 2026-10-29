@@ -190,6 +190,16 @@ public sealed class Preset
         && (sourceFormat == "pdf" || Formats.FormatRegistry.FindById(sourceFormat)?.Category == Formats.FormatCategory.Image);
 
     /// <summary>
+    /// True if converting a <paramref name="sourceFormat"/> file writes what is said in it as text
+    /// (<see cref="MediaOptions.Transcribe"/>): the file is audio or video and the target one of
+    /// <see cref="MediaOptions.TranscribeTargets"/>. Other files, and other targets, convert as usual.
+    /// </summary>
+    public bool TranscribesOf(string sourceFormat) =>
+        Media.Transcribe
+        && MediaOptions.TranscribeTargets.Contains(TargetFormat)
+        && Formats.FormatRegistry.FindById(sourceFormat)?.Category is Formats.FormatCategory.Audio or Formats.FormatCategory.Video;
+
+    /// <summary>
     /// True for "Merge videos", "Merge audio" and "Video from images": every dropped file goes, in order, into one
     /// video or audio file (<see cref="MediaOptions.JoinIntoOne"/>, <see cref="MediaOptions.Slideshow"/>).
     /// </summary>
@@ -923,6 +933,27 @@ public sealed class MediaOptions
     /// saved before it existed), so results never change without the user asking for it.
     /// </summary>
     public bool HardwareEncoding { get; set; }
+
+    /// <summary>Text formats the speech of audio and video can be written as (<see cref="Transcribe"/>).</summary>
+    public static readonly IReadOnlyList<string> TranscribeTargets = ["txt", "srt", "vtt"];
+
+    /// <summary>
+    /// Audio or video → TXT, SRT or WebVTT: write what is said, with Whisper, instead of converting the sound or taking
+    /// a subtitle track (<see cref="Preset.TranscribesOf"/>).
+    /// </summary>
+    public bool Transcribe { get; set; }
+
+    /// <summary>
+    /// With <see cref="Transcribe"/>: the language spoken, as a Whisper code (<c>pt</c>, <c>en</c>, …), or <c>auto</c> to
+    /// let Whisper detect it.
+    /// </summary>
+    public string TranscribeLanguage { get; set; } = "auto";
+
+    /// <summary>
+    /// With <see cref="Transcribe"/>: the Whisper model, <c>tiny</c>, <c>base</c>, <c>small</c> or <c>medium</c>. Larger
+    /// ones are more accurate, slower, and a larger first download.
+    /// </summary>
+    public string TranscribeModel { get; set; } = "small";
 
     /// <summary>Picture formats a video's frames can be saved as (<see cref="SaveEveryFrame"/>).</summary>
     public static readonly IReadOnlyList<string> FrameTargets = ["png", "jpg"];

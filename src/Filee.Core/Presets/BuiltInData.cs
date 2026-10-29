@@ -111,6 +111,7 @@ public static class BuiltInData
         },
         .. PdfCompressionPresets(),
         .. OcrPresets(),
+        .. TranscribePresets(),
         .. PdfSlidesPresets(),
         .. FramePresets(),
         .. MotionPhotoPresets(),
@@ -328,6 +329,29 @@ public static class BuiltInData
         {
             Id = "searchable-pdf", NameKey = "preset.searchable_pdf", TargetFormat = "pdf",
             Pdf = { Ocr = true }, Output = { FileNamePattern = "{name}_searchable" },
+        },
+    ];
+
+    /// <summary>
+    /// "Transcribe": what is said in an audio or video file, written with Whisper as plain text or as subtitles with
+    /// times (added in settings schema 57). Behind a flip on the audio and video donuts.
+    /// </summary>
+    public static List<Preset> TranscribePresets() =>
+    [
+        new()
+        {
+            Id = "transcribe-txt", NameKey = "preset.transcribe_txt", TargetFormat = "txt",
+            Media = { Transcribe = true }, Output = { FileNamePattern = "{name}_transcript" },
+        },
+        new()
+        {
+            Id = "transcribe-srt", NameKey = "preset.transcribe_srt", TargetFormat = "srt",
+            Media = { Transcribe = true }, Output = { FileNamePattern = "{name}_transcript" },
+        },
+        new()
+        {
+            Id = "transcribe-vtt", NameKey = "preset.transcribe_vtt", TargetFormat = "vtt",
+            Media = { Transcribe = true }, Output = { FileNamePattern = "{name}_transcript" },
         },
     ];
 
@@ -672,15 +696,16 @@ public static class BuiltInData
             // Every frame as pictures is on no front (a long video gives thousands of files): behind a flip, a drop that
             // misses its slice doesn't start it. Live / Motion Photos of a clip are there too, and "Cut a clip" first
             // (in place of FLAC, which stays in the library).
-            BackPresetIds = ["tool-clip", "mp4-av1", "to-webp", "extract-frames-png", "extract-frames-jpg", "live-photo-iphone", "motion-photo-android",
-                "extract-audio", "to-wav", "compress-video", "merge-videos", "zip-all"],
+            // "Transcribe" (TXT, SRT) took the places of the second frame format and of WAV (both stay in the library).
+            BackPresetIds = ["tool-clip", "mp4-av1", "to-webp", "extract-frames-png", "transcribe-txt", "live-photo-iphone", "motion-photo-android",
+                "extract-audio", "transcribe-srt", "compress-video", "merge-videos", "zip-all"],
         },
         new()
         {
             Id = "audio", NameKey = "profile.audio",
             Extensions = ExtensionsOf(FormatCategory.Audio),
             PresetIds = ["to-mp3", "mp3-128", "to-m4a", "to-wav", "to-flac", "to-ogg", "to-opus", "to-aac"],
-            BackPresetIds = ["to-alac", "compress-audio", "merge-audio", "remove-metadata", "zip-all"],
+            BackPresetIds = ["to-alac", "compress-audio", "merge-audio", "remove-metadata", "transcribe-txt", "transcribe-srt", "transcribe-vtt", "zip-all"],
         },
         new()
         {

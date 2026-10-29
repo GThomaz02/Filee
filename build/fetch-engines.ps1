@@ -20,6 +20,8 @@
                      install: ebook-convert for LIT, LRF, PDB, ... and MOBI / AZW3 output
       tesseract/     Tesseract OCR (Apache-2.0, separate program), UB Mannheim's Windows build unpacked from its
                      installer with 7-Zip (never run); the language data is downloaded by the app when needed
+      whisper/       whisper.cpp (MIT, separate program), speech to text: whisper-cli.exe + its DLLs (the zip's other
+                     example programs are dropped); the speech model is downloaded by the app when first used
 
   Every download is pinned to a version and verified with SHA-256 (src/Filee.Engines/Infrastructure/engines.json,
   shared with the app). Downloads are cached in build/.cache.
@@ -267,6 +269,15 @@ if ('tesseract' -in $selected) {
     foreach ($folder in '$PLUGINSDIR', 'tessdata') { Remove-Item -LiteralPath (Join-Path $target $folder) -Recurse -Force -ErrorAction SilentlyContinue }
     Get-ChildItem $target -File | Where-Object { $_.Extension -in '.exe', '.html' -and $_.Name -ne 'tesseract.exe' } | Remove-Item -Force
     if (-not (Test-Path (Join-Path $target 'tesseract.exe'))) { throw 'tesseract.exe not found in the installer.' }
+}
+
+if ('whisper' -in $selected) {
+    # whisper.cpp's release zip holds every example program; only whisper-cli.exe is used, with the DLLs it loads.
+    $zip = Get-Engine 'whisper'
+    $target = Join-Path $Destination 'whisper'
+    Expand-Flat $zip $target
+    if (-not (Test-Path (Join-Path $target 'whisper-cli.exe'))) { throw 'whisper-cli.exe not found in the archive.' }
+    Get-ChildItem $target -File -Filter '*.exe' | Where-Object { $_.Name -ne 'whisper-cli.exe' } | Remove-Item -Force
 }
 
 if ('calibre' -in $selected) {

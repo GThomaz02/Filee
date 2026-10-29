@@ -763,7 +763,9 @@ public sealed class JobQueue : IAsyncDisposable
         // "Recognize text": Tesseract writes a searchable PDF first, read on into DOCX, TXT, … from there. Also for the
         // PDFs that are merged into one.
         var ocr = (finalOutput || target == "pdf") && runWith.RecognizesTextOf(source.Id);
-        var route = planner.Plan(source.Id, target, frames, motionPhoto: motionPhoto, livePhoto: livePhoto, ocr: ocr);
+        // "Transcribe": Whisper writes the speech as TXT, SRT or WebVTT in one step of its own.
+        var transcribe = finalOutput && runWith.TranscribesOf(source.Id);
+        var route = planner.Plan(source.Id, target, frames, motionPhoto: motionPhoto, livePhoto: livePhoto, ocr: ocr, transcribe: transcribe);
         if (route is null)
             return Fail(file, "error.no_route", $"{source.Id} → {target}");
 
